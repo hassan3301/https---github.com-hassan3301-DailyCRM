@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Invoice #{{ invoice.id }}</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 40px;
+      font-size: 14px;
+    }
+    h1 {
+      margin-bottom: 0;
+    }
+    .info, .summary {
+      margin-bottom: 20px;
+    }
+    .summary {
+      border-top: 1px solid #ccc;
+      padding-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Invoice #{{ invoice.id }}</h1>
+
+  <div class="info">
+    <p><strong>Issued to:</strong> {{ contact.name }}</p>
+    <p><strong>Company:</strong> {{ contact.company or '—' }}</p>
+    <p><strong>Email:</strong> {{ contact.email }}</p>
+    <p><strong>Phone:</strong> {{ contact.phone }}</p>
+  </div>
+
+  <div class="summary">
+    <p><strong>Issue Date:</strong> {{ invoice.issue_date }}</p>
+    <p><strong>Due Date:</strong> {{ invoice.due_date }}</p>
+    <p><strong>Total Amount:</strong> ${{ "%.2f" | format(invoice.total_amount) }}</p>
+    <p><strong>Status:</strong> {{ invoice.status|capitalize }}</p>
+    {% if invoice.notes %}
+      <p><strong>Notes:</strong> {{ invoice.notes }}</p>
+    {% endif %}
+  </div>
+</body>
+</html>
