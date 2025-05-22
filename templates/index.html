@@ -99,6 +99,25 @@
 </head>
 <body>
 
+<!-- Navbar -->
+<div style="background: #faf9f3; color: black; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000;">
+  <div style="margin-right: 16px;">
+    Welcome, {{ session.get("user_name", "User") }}
+  </div>
+  <div style="display: flex; align-items: center;">
+    <img src="{{ url_for('static', filename='Daily Logo.png') }}" alt="Logo" style="height: 60px; margin-right: 12px;">
+    <h1 style="font-size: 20px; margin: 0;"></h1>
+  </div>
+  <div>
+    <form action="{{ url_for('logout') }}" method="post" style="margin: 0;">
+      <button type="submit" style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
+        Logout
+      </button>
+    </form>
+  </div>
+</div>
+
+
   <div class="dashboard">
     <div class="card">
       <h3>📇 Customers</h3>

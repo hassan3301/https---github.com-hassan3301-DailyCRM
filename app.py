@@ -1,9 +1,10 @@
-from flask import Flask, render_template, request, redirect, session, make_response, url_for
+from flask import Flask, render_template, request, redirect, session, make_response, url_for, redirect 
 from services.openai_chat import get_openai_response
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
-from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense
+from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
 from utils.email_utils import send_email
+from authlib.integrations.flask_client import OAuth
 import os
 import datetime
 from datetime import timedelta
@@ -24,12 +25,31 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///crm.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
-#with app.app_context():
-#    db.create_all()
+app.secret_key = os.getenv("SECRET_KEY")
+oauth = OAuth(app)
 
+
+google = oauth.register(
+    name='google',
+    client_id=os.getenv("GOOGLE_CLIENT_ID"),
+    client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
+    access_token_url='https://oauth2.googleapis.com/token',
+    access_token_params=None,
+    authorize_url='https://accounts.google.com/o/oauth2/auth',
+    authorize_params={
+        'access_type': 'offline',
+        'prompt': 'consent'
+    },
+    api_base_url='https://www.googleapis.com/oauth2/v2/',
+    userinfo_endpoint='https://www.googleapis.com/oauth2/v2/userinfo',
+    client_kwargs={'scope': 'email profile'},
+)
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    if "user_id" not in session:
+        return redirect("/login")
+
     response = ""
 
     if request.method == "POST":
@@ -63,7 +83,8 @@ def index():
                             email=data.get("email"),
                             phone=data.get("phone"),
                             company=data.get("company"),
-                            notes=data.get("notes", "")
+                            notes=data.get("notes", ""),
+                            user_id=session["user_id"]
                         )
                         db.session.add(new_contact)
                         db.session.commit()
@@ -137,7 +158,8 @@ def index():
                                     contact_id=contact.id,
                                     due_date=due_date,
                                     total_amount=amount,
-                                    notes=data.get("notes", "")
+                                    notes=data.get("notes", ""),
+                                    user_id=session["user_id"]
                                 )
                                 db.session.add(invoice)
                                 db.session.commit()
@@ -204,7 +226,8 @@ def index():
                                     contact_id=contact.id,
                                     type=data.get("type"),
                                     summary=data.get("summary"),
-                                    date=parsed_date
+                                    date=parsed_date,
+                                    user_id=session["user_id"]
                                 )
                                 db.session.add(interaction)
                                 db.session.commit()
@@ -300,7 +323,8 @@ def index():
                             contact_id=contact.id if contact else None,
                             date=parsed_date,
                             description=description,
-                            location=location
+                            location=location,
+                            user_id=session["user_id"]
                         )
                         db.session.add(event)
                         db.session.commit()
@@ -361,36 +385,50 @@ def index():
         except Exception as e:
             response = f"❌ Error parsing or executing actions: {str(e)}"
 
-    contacts = Contact.query.all()
-    invoices = Invoice.query.all()
-    interactions = Interaction.query.order_by(Interaction.date.desc()).limit(10).all()
-    events = Event.query.filter(Event.date >= datetime.datetime.now()).order_by(Event.date).limit(5).all()
+    user_id = session["user_id"]
 
+    contacts = Contact.query.filter_by(user_id=user_id).all()
+    invoices = Invoice.query.join(Contact).filter(Contact.user_id == user_id).all()
+    interactions = Interaction.query.join(Contact).filter(Contact.user_id == user_id).order_by(Interaction.date.desc()).limit(10).all()
+    events = Event.query.join(Contact, isouter=True).filter(
+        (Contact.user_id == user_id) | (Event.contact_id == None)
+    ).filter(Event.date >= datetime.datetime.now()).order_by(Event.date).limit(5).all()
 
-    total_revenue = db.session.query(func.sum(Revenue.amount)).scalar() or 0
-    start_of_month = datetime.date.today().replace(day=1)
-    monthly_revenue = (
+    total_revenue = (
         db.session.query(func.sum(Revenue.amount))
-        .filter(Revenue.date >= start_of_month)
+        .join(Invoice)
+        .join(Contact)
+        .filter(Contact.user_id == user_id)
         .scalar()
         or 0
     )
 
-    total_expenses = db.session.query(func.sum(Expense.amount)).scalar() or 0
+    start_of_month = datetime.date.today().replace(day=1)
+    monthly_revenue = (
+        db.session.query(func.sum(Revenue.amount))
+        .join(Invoice)
+        .join(Contact)
+        .filter(Contact.user_id == user_id, Revenue.date >= start_of_month)
+        .scalar()
+        or 0
+    )
+
+    total_expenses = db.session.query(func.sum(Expense.amount)).filter_by(user_id=user_id).scalar() or 0
     monthly_expenses = (
         db.session.query(func.sum(Expense.amount))
+        .filter_by(user_id=user_id)
         .filter(Expense.date >= start_of_month)
         .scalar()
         or 0
     )
+    recent_expenses = Expense.query.filter_by(user_id=user_id).order_by(Expense.date.desc()).limit(5).all()
 
-    recent_expenses = Expense.query.order_by(Expense.date.desc()).limit(5).all()
-
-    # Get this week’s events for the calendar
     start_of_week = datetime.datetime.now() - datetime.timedelta(days=datetime.datetime.now().weekday())
     end_of_week = start_of_week + datetime.timedelta(days=7)
-
-    weekly_events = Event.query.filter(Event.date >= start_of_week, Event.date < end_of_week).all()
+    weekly_events = Event.query.join(Contact, isouter=True).filter(
+        ((Contact.user_id == user_id) | (Event.contact_id == None)) &
+        (Event.date >= start_of_week) & (Event.date < end_of_week)
+    ).all()
 
     return render_template(
         "index.html",
@@ -401,13 +439,12 @@ def index():
         monthly_revenue=monthly_revenue,
         interactions=interactions,
         events=events,
-        weekly_events = weekly_events,
+        weekly_events=weekly_events,
         start=start_of_week,
         timedelta=timedelta,
         total_expenses=total_expenses,
         monthly_expenses=monthly_expenses,
         recent_expenses=recent_expenses,
-
     )
 
 
@@ -446,3 +483,38 @@ def download_invoice(invoice_id):
     response.headers['Content-Type'] = 'application/pdf'
     response.headers['Content-Disposition'] = f'attachment; filename=invoice_{invoice.id}.pdf'
     return response
+
+@app.route("/login")
+def login():
+    redirect_uri = url_for('auth_callback', _external=True)
+    print(url_for('auth_callback', _external=True))
+    return google.authorize_redirect(redirect_uri)
+
+@app.route("/auth/callback")
+def auth_callback():
+    token = google.authorize_access_token()
+    resp = google.get("userinfo")
+    user_info = resp.json()
+
+    email = user_info["email"]
+    name = user_info["name"]
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        user = User(email=email, name=name)
+        db.session.add(user)
+        db.session.commit()
+
+    session["user_id"] = user.id
+    session["user_name"] = user.name
+    return redirect(url_for("index"))
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect("/")
+
+
+with app.app_context():
+    db.create_all()
