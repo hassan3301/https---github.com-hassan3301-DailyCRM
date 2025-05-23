@@ -21,7 +21,7 @@ os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 app = Flask(__name__)
 app.secret_key = "supersecret"  # for storing session info
 
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///crm.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 
@@ -516,5 +516,5 @@ def logout():
     return redirect("/")
 
 
-with app.app_context():
-    db.create_all()
+#with app.app_context():
+#    db.create_all()
