@@ -487,7 +487,6 @@ def download_invoice(invoice_id):
 @app.route("/login")
 def login():
     redirect_uri = url_for('auth_callback', _external=True)
-    print(url_for('auth_callback', _external=True))
     return google.authorize_redirect(redirect_uri)
 
 @app.route("/auth/callback")
