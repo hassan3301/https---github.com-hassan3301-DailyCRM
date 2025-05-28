@@ -194,86 +194,80 @@ def index():
             fields = schema["fields"]
             step = wizard["step"]
 
-            # Save last answer if we're past the first step
             if step > 0:
                 last_field = fields[step - 1]["name"]
                 wizard["data"][last_field] = user_message
 
-            # Ask next field if not done yet
             if step < len(fields):
                 prompt = fields[step]["prompt"]
                 wizard["step"] += 1
-                session["wizard"] = wizard  # ✅ persist wizard state
+                session["wizard"] = wizard
                 return render_template("index.html", response=prompt, **shared_data)
 
-            # Final step – create the object
             data = wizard["data"]
             model = schema["model"]
             session.pop("wizard")
 
-            # Handle each wizard type
             if wizard["type"] == "create_contact":
                 obj = model(**data, user_id=session["user_id"])
-                db.session.add(obj)
-                db.session.commit()
-                return render_template("index.html", response=f"✅ Contact created!", **shared_data)
 
             elif wizard["type"] == "create_invoice":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
-                parsed_date = parse_date(data["due_date"])
                 if not contact:
                     return render_template("index.html", response=f"❌ No contact found for '{data['contact_name']}'", **shared_data)
+                
+                due = parse_date(data["due_date"])
+                if not due:
+                    return render_template("index.html", response="❌ Could not understand due date. Try 'next Friday'.", **shared_data)
+
                 obj = model(
                     contact_id=contact.id,
-                    due_date=parsed_date,
-                    total_amount=float(data["amount"]),
+                    due_date=due,
+                    total_amount=parse_float(data["amount"]),
                     user_id=session["user_id"]
                 )
-                db.session.add(obj)
-                db.session.commit()
-                return render_template("index.html", response=f"✅ Invoice created for {contact.name}", **shared_data)
 
             elif wizard["type"] == "create_event":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data.get('contact_name', '')}%")).first()
-                parsed_date = dateparser.parse(data["date"], settings={"RELATIVE_BASE": datetime.datetime.now()})
+                event_date = parse_date(data["date"])
+                if not event_date:
+                    return render_template("index.html", response="❌ Could not understand event date.", **shared_data)
+
                 obj = model(
                     title=data["title"],
                     contact_id=contact.id if contact else None,
-                    date=parsed_date,
+                    date=event_date,
                     description=data.get("description", ""),
                     location=data.get("location", ""),
                     user_id=session["user_id"]
                 )
-                db.session.add(obj)
-                db.session.commit()
-                return render_template("index.html", response="📅 Event created.", **shared_data)
 
             elif wizard["type"] == "log_interaction":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
-                parsed_date = dateparser.parse(data["date"], settings={"RELATIVE_BASE": datetime.datetime.now()})
+                log_date = parse_date(data["date"])
+                if not log_date:
+                    return render_template("index.html", response="❌ Could not understand interaction date.", **shared_data)
+
                 obj = model(
                     contact_id=contact.id if contact else None,
                     type=data["type"],
                     summary=data["summary"],
-                    date=parsed_date,
+                    date=log_date,
                     user_id=session["user_id"]
                 )
-                db.session.add(obj)
-                db.session.commit()
-                return render_template("index.html", response="📝 Interaction logged.", **shared_data)
 
             elif wizard["type"] == "create_expense":
-                parsed_date = dateparser.parse(data["date"], settings={"RELATIVE_BASE": datetime.datetime.now()})
+                expense_date = parse_date(data["date"])
+                if not expense_date:
+                    expense_date = datetime.datetime.now()
+
                 obj = model(
                     amount=float(data["amount"]),
                     category=data.get("category", "Uncategorized"),
                     description=data.get("description", ""),
-                    date=parsed_date.date() if parsed_date else datetime.date.today(),
+                    date=expense_date.date(),
                     user_id=session["user_id"]
                 )
-                db.session.add(obj)
-                db.session.commit()
-                return render_template("index.html", response="💸 Expense recorded.", **shared_data)
 
             elif wizard["type"] == "send_email":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['to']}%")).first()
@@ -304,7 +298,11 @@ def index():
 
             else:
                 return render_template("index.html", response="⚠️ Unknown wizard type.", **shared_data)
- 
+
+            db.session.add(obj)
+            db.session.commit()
+            return render_template("index.html", response=f"✅ {model.__name__} created!", **shared_data)
+
 
         try:
             # Extract JSON array or object from assistant's response
@@ -341,16 +339,14 @@ def index():
                     #    response_log.append(f"✅ New contact '{new_contact.name}' added to the CRM.")
                     if parsed.get("action") == "start_wizard":
                         wizard_type = parsed.get("type")
-                        if wizard_type in WIZARD_SCHEMAS:
-                            session["wizard"] = {
-                                "type": wizard_type,
-                                "step": 0,
-                                "data": {}
-                            }
-                            
-                            return render_template("index.html", response="👍 Got it, let's get started!", **shared_data)
-                        else:
-                            return render_template("index.html", response=f"⚠️ Unknown wizard type: {wizard_type}", **shared_data)
+                        fields = WIZARD_SCHEMAS[wizard_type]["fields"]
+                        session["wizard"] = {
+                            "type": wizard_type,
+                            "step": 1,  # start at step 1 because we're asking the first prompt now
+                            "data": {}
+                        }
+                        prompt = fields[0]["prompt"]
+                        return render_template("index.html", response=f"Great! Let's get started.\n{prompt}", **shared_data)
 
                     elif action == "read_all_contacts":
                         contacts = Contact.query.all()

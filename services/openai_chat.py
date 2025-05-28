@@ -16,7 +16,7 @@ def get_openai_response(message_text):
                 “If the user intends to create a contact, invoice, expense, event, interaction, or send an email
                 but hasn’t provided all the information, respond with 
                 {"action": "start_wizard", "type": "create_contact"} 
-                instead of create_contact. Adjust the type for what the user is trying to do.”
+                instead of create_contact. Adjust the type for what the user is trying to do. Also accept general dates, such as this friday, next month, next week, etc.”
                 
                 If the user wants to create a new customer, return a JSON object like:
                 {'action': 'create_contact', 'data': {'name': '', 'email': '', 'phone': '', 'company': '', 'notes': ''}}.
