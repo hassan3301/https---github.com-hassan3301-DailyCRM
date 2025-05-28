@@ -4,6 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func
 from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
 from utils.email_utils import send_email
+from utils.date_helpers import parse_date
 from authlib.integrations.flask_client import OAuth
 import os
 import datetime
@@ -91,6 +92,12 @@ WIZARD_SCHEMAS = {
     },
 
 }
+
+def parse_float(value):
+    try:
+        return float(value.replace("$", "").replace(",", "").strip())
+    except Exception:
+        return None
 
 
 google = oauth.register(
@@ -192,29 +199,39 @@ def index():
                 last_field = fields[step - 1]["name"]
                 wizard["data"][last_field] = user_message
 
-            # Ask next field
+            # Ask next field if not done yet
             if step < len(fields):
                 prompt = fields[step]["prompt"]
                 wizard["step"] += 1
-                session["wizard"] = wizard
+                session["wizard"] = wizard  # ✅ persist wizard state
                 return render_template("index.html", response=prompt, **shared_data)
 
             # Final step – create the object
             data = wizard["data"]
             model = schema["model"]
+            session.pop("wizard")
 
-            # Model-specific post-processing
+            # Handle each wizard type
             if wizard["type"] == "create_contact":
                 obj = model(**data, user_id=session["user_id"])
+                db.session.add(obj)
+                db.session.commit()
+                return render_template("index.html", response=f"✅ Contact created!", **shared_data)
 
             elif wizard["type"] == "create_invoice":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
+                parsed_date = parse_date(data["due_date"])
+                if not contact:
+                    return render_template("index.html", response=f"❌ No contact found for '{data['contact_name']}'", **shared_data)
                 obj = model(
-                    contact_id=contact.id if contact else None,
-                    due_date=dateparser.parse(data["due_date"]).date(),
+                    contact_id=contact.id,
+                    due_date=parsed_date,
                     total_amount=float(data["amount"]),
                     user_id=session["user_id"]
                 )
+                db.session.add(obj)
+                db.session.commit()
+                return render_template("index.html", response=f"✅ Invoice created for {contact.name}", **shared_data)
 
             elif wizard["type"] == "create_event":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data.get('contact_name', '')}%")).first()
@@ -227,6 +244,9 @@ def index():
                     location=data.get("location", ""),
                     user_id=session["user_id"]
                 )
+                db.session.add(obj)
+                db.session.commit()
+                return render_template("index.html", response="📅 Event created.", **shared_data)
 
             elif wizard["type"] == "log_interaction":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
@@ -238,6 +258,9 @@ def index():
                     date=parsed_date,
                     user_id=session["user_id"]
                 )
+                db.session.add(obj)
+                db.session.commit()
+                return render_template("index.html", response="📝 Interaction logged.", **shared_data)
 
             elif wizard["type"] == "create_expense":
                 parsed_date = dateparser.parse(data["date"], settings={"RELATIVE_BASE": datetime.datetime.now()})
@@ -248,19 +271,20 @@ def index():
                     date=parsed_date.date() if parsed_date else datetime.date.today(),
                     user_id=session["user_id"]
                 )
+                db.session.add(obj)
+                db.session.commit()
+                return render_template("index.html", response="💸 Expense recorded.", **shared_data)
 
             elif wizard["type"] == "send_email":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['to']}%")).first()
                 if not contact or not contact.email:
                     return render_template("index.html", response="❌ Contact not found or has no email.", **shared_data)
-
                 try:
                     send_email(contact.email, data["subject"], data["body"])
-                    response_message = f"📧 Email sent to {contact.name} at {contact.email}."
+                    return render_template("index.html", response=f"📧 Email sent to {contact.name}.", **shared_data)
                 except Exception as e:
-                    response_message = f"❌ Failed to send email: {str(e)}"
-                return render_template("index.html", response=response_message, **shared_data)
-            
+                    return render_template("index.html", response=f"❌ Failed to send email: {str(e)}", **shared_data)
+
             elif wizard["type"] == "send_invoice_email":
                 contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
                 if not contact:
@@ -269,24 +293,18 @@ def index():
                     from utils.email_utils import send_invoice_email
                     invoice_index = int(data.get("invoice_index", 1))
                     invoices = Invoice.query.filter_by(contact_id=contact.id).order_by(Invoice.due_date.desc()).all()
-
                     if 1 <= invoice_index <= len(invoices):
                         invoice = invoices[invoice_index - 1]
                         send_invoice_email(contact, invoice, app)
-                        response_message = f"📧 Invoice #{invoice.id} emailed to {contact.name} at {contact.email}."
+                        return render_template("index.html", response=f"📧 Invoice #{invoice.id} sent to {contact.name}.", **shared_data)
                     else:
-                        response_message = f"❌ Invoice index {invoice_index} out of range for {contact.name}."
+                        return render_template("index.html", response=f"❌ Invoice index {invoice_index} out of range.", **shared_data)
                 except Exception as e:
-                    response_message = f"❌ Failed to send invoice email: {str(e)}"
+                    return render_template("index.html", response=f"❌ Failed to send invoice email: {str(e)}", **shared_data)
+
             else:
                 return render_template("index.html", response="⚠️ Unknown wizard type.", **shared_data)
-        
-
-            # Save and exit wizard
-            db.session.add(obj)
-            db.session.commit()
-            session.pop("wizard")
-            return render_template("index.html", response=f"✅ {model.__name__} created!", **shared_data)
+ 
 
         try:
             # Extract JSON array or object from assistant's response
@@ -329,8 +347,10 @@ def index():
                                 "step": 0,
                                 "data": {}
                             }
-                            prompt = WIZARD_SCHEMAS[wizard_type]["fields"][0]["prompt"]
-                            return render_template("index.html", response=prompt, **shared_data)
+                            
+                            return render_template("index.html", response="👍 Got it, let's get started!", **shared_data)
+                        else:
+                            return render_template("index.html", response=f"⚠️ Unknown wizard type: {wizard_type}", **shared_data)
 
                     elif action == "read_all_contacts":
                         contacts = Contact.query.all()
