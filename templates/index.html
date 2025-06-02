@@ -1,226 +1,1303 @@
-<!DOCTYPE html>
+utk<!DOCTYPE html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>Daily CRM Dashboard</title>
-  <style>
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-      background: #f4f4f4;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
-    }
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Daily CRM Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+        <link
+            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
+        <script>
+            tailwind.config = {
+                theme: {
+                    extend: {
+                        colors: {
+                            yellow: {
+                                400: "#FFD700",
+                                500: "#FFC107",
+                                600: "#FF8F00",
+                            },
+                        },
+                        fontFamily: {
+                            inter: ["Inter", "sans-serif"],
+                        },
+                    },
+                },
+            };
+        </script>
+        <style>
+            body {
+                font-family: "Inter", sans-serif;
+            }
+            .enterprise-shadow {
+                box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+            }
+            .enterprise-shadow-lg {
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            }
+            .modal-shadow {
+                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+            }
+            .draggable {
+                cursor: move;
+            }
+            .dragging {
+                z-index: 1000;
+            }
+            @media (max-width: 768px) {
+                .mobile-hide {
+                    display: none;
+                }
+            }
+            .chat-transition {
+                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .chat-message {
+                animation: slideInUp 0.3s ease-out;
+            }
+            @keyframes slideInUp {
+                from {
+                    opacity: 0;
+                    transform: translateY(20px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            .modal-enter {
+                animation: modalFadeIn 0.3s ease-out;
+            }
+            @keyframes modalFadeIn {
+                from {
+                    opacity: 0;
+                    transform: scale(0.95);
+                }
+                to {
+                    opacity: 1;
+                    transform: scale(1);
+                }
+            }
+            .chat-input-focus {
+                box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.1);
+            }
+            .touch-manipulation {
+                touch-action: manipulation;
+            }
+            @media (max-width: 640px) {
+                .modal-enter {
+                    animation: modalSlideUp 0.3s ease-out;
+                }
+                @keyframes modalSlideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(100%);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0);
+                    }
+                }
+            }
+        </style>
+    </head>
+    <body class="bg-gray-50 min-h-screen font-inter text-sm">
+        <!-- Header Section -->
+        <header
+            class="bg-white border-b border-gray-200 sticky top-0 z-40 enterprise-shadow"
+        >
+            <div class="px-3 sm:px-6 py-3">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <img
+                            src="{{ url_for('static', filename='Daily Logo.png') }}"
+                            alt="Logo"
+                            class="h-6 sm:h-8 w-auto"
+                        />
+                        <div>
+                            <h1
+                                class="text-lg sm:text-xl font-bold text-gray-900"
+                            >
+                                Daily CRM
+                            </h1>
+                            <p class="text-xs text-gray-500 hidden sm:block">
+                                Business Dashboard
+                            </p>
+                        </div>
+                    </div>
 
-    .dashboard {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      grid-template-rows: repeat(2, 250px);
-      gap: 20px;
-      padding: 30px;
-      flex: 1;
-    }
+                    <div class="flex items-center space-x-2 sm:space-x-4">
+                        <div class="text-right hidden sm:block">
+                            <p class="text-xs text-gray-500">Welcome back,</p>
+                            <p class="text-sm font-semibold text-gray-900">
+                                {{ session.get("user_name", "User") }}
+                            </p>
+                        </div>
 
-    .card {
-      background: white;
-      border-radius: 10px;
-      padding: 20px;
-      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-      overflow-y: auto;
-    }
-
-    .card h3 {
-      margin-top: 0;
-    }
-
-    .chat-section {
-      background: white;
-      border-top: 1px solid #ccc;
-      padding: 20px;
-      box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.05);
-    }
-
-    .chat-section form {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-    }
-
-    .chat-section textarea {
-      flex: 1;
-      height: 60px;
-      resize: none;
-      padding: 10px;
-      font-size: 14px;
-      border-radius: 5px;
-      border: 1px solid #ccc;
-    }
-
-    .chat-section button {
-      padding: 10px 20px;
-      background: #0077cc;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-
-    .chat-section button:hover {
-      background: #005fa3;
-    }
-
-    .response-box {
-      margin-top: 15px;
-      white-space: pre-wrap;
-      font-size: 14px;
-      background: #f9f9f9;
-      border: 1px solid #ddd;
-      border-radius: 5px;
-      padding: 10px;
-    }
-
-    .chat-section{
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      background: #fff;
-      border-top: 1px solid #ccc;
-      padding: 10px 20px;
-      z-index: 999;
-    }
-
-    .chat-section input {
-      border: 1px solid #ccc;
-      border-radius: 4px;
-    }
-  </style>
-</head>
-<body>
-
-<!-- Navbar -->
-<div style="background: #faf9f3; color: black; padding: 12px 24px; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; z-index: 1000;">
-  <div style="margin-right: 16px;">
-    Welcome, {{ session.get("user_name", "User") }}
-  </div>
-  <div style="display: flex; align-items: center;">
-    <img src="{{ url_for('static', filename='Daily Logo.png') }}" alt="Logo" style="height: 60px; margin-right: 12px;">
-    <h1 style="font-size: 20px; margin: 0;"></h1>
-  </div>
-  <div>
-    <form action="{{ url_for('logout') }}" method="post" style="margin: 0;">
-      <button type="submit" style="padding: 8px 16px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">
-        Logout
-      </button>
-    </form>
-  </div>
-</div>
-
-
-  <div class="dashboard">
-    <div class="card">
-      <h3>📇 Customers</h3>
-      {% for c in contacts %}
-        <div>- {{ c.name }} ({{ c.email }})</div>
-      {% else %}
-        <div>No customers yet.</div>
-      {% endfor %}
-    </div>
-
-    <div class="card">
-      <h3>📄 Invoices</h3>
-      {% for i in invoices %}
-        <div>
-          - [#{{ i.id }}] {{ i.contact.name }}: ${{ i.total_amount }} ({{ i.status }}) due {{ i.due_date }}
-        </div>
-      {% else %}
-        <div>No invoices yet.</div>
-      {% endfor %}
-    </div>
-
-    <div class="card">
-        <h3>💰 Revenue</h3>
-        <p><strong>Total Revenue:</strong> ${{ '%.2f' | format(total_revenue) }}</p>
-        <p><strong>This Month:</strong> ${{ '%.2f' | format(monthly_revenue) }}</p>
-    </div>
-    
-    <div class="card">
-      <h3>📝 Recent Interactions</h3>
-      {% for i in interactions %}
-        <div>
-          - {{ i.contact.name }}: {{ i.type }} on {{ i.date }}<br>
-          <small>{{ i.summary }}</small>
-        </div>
-      {% else %}
-        <div>No interactions yet.</div>
-      {% endfor %}
-    </div>
-
-    <div class="card">
-      <h3>📅 Upcoming Events</h3>
-      {% for e in events %}
-        <div>
-          <strong>{{ e.date.strftime('%b %d %I:%M %p') }}</strong>: {{ e.title }}
-          {% if e.contact %}<br><small>with {{ e.contact.name }}</small>{% endif %}
-        </div>
-      {% else %}
-        <div>No events scheduled.</div>
-      {% endfor %}
-    </div>
-
-    <div class="card">
-      <h3>💸 Expenses</h3>
-      <p><strong>This Month:</strong> ${{ "%.2f"|format(monthly_expenses) }}</p>
-      <p><strong>Total:</strong> ${{ "%.2f"|format(total_expenses) }}</p>
-      <ul>
-        {% for e in recent_expenses %}
-          <li>${{ "%.2f"|format(e.amount) }} — {{ e.category }} ({{ e.date }})</li>
-        {% else %}
-          <li>No expenses recorded.</li>
-        {% endfor %}
-      </ul>
-    </div>
-  </div>
-
-  <h3 style="margin-top: 40px;">📅 Weekly Calendar</h3>
-  <div class="card" style="width: 100%; overflow-x: auto;">
-    <div class="calendar" style="display: grid; grid-template-columns: 100px repeat(7, 1fr); min-width: 900px;">
-      <div class="header"></div>
-      {% for i in range(7) %}
-        <div class="header" style="background:#f4f4f4; padding:5px; font-weight:bold; border:1px solid #ddd;">
-          {{ (start + timedelta(days=i)).strftime('%a %b %d') }}
-        </div>
-      {% endfor %}
-
-      {% for hour in range(8, 18) %}
-        <div style="border:1px solid #eee; padding:5px;">{{ "%02d:00" % hour }}</div>
-        {% for day in range(7) %}
-          <div style="border:1px solid #eee; padding:5px; height:60px;">
-            {% for e in weekly_events %}
-              {% if e.date.weekday() == day and e.date.hour == hour %}
-                <div style="background:#0077cc; color:white; padding:2px 4px; border-radius:4px; font-size:12px;" title="{{ e.title }} at {{ e.location }}">
-                  {{ e.title }}
+                        <form action="{{ url_for('logout') }}" method="post">
+                            <button
+                                type="submit"
+                                class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors duration-200 enterprise-shadow font-medium"
+                            >
+                                <span class="hidden sm:inline">Logout</span>
+                                <span class="sm:hidden">Logout</span>
+                            </button>
+                        </form>
+                    </div>
                 </div>
-              {% endif %}
-            {% endfor %}
-          </div>
-        {% endfor %}
-      {% endfor %}
-    </div>
-  </div>
+            </div>
+        </header>
 
+        <div class="px-3 sm:px-6 py-4 pb-32 space-y-4 sm:space-y-6">
+            <!-- KPI Row -->
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                <!-- Revenue KPI -->
+                <div
+                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                >
+                    <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs text-gray-500 font-medium mb-1">
+                                Total Revenue
+                            </p>
+                            <p
+                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
+                            >
+                                ${{ '%.2f' | format(total_revenue) }}
+                            </p>
+                            <p class="text-xs text-gray-600 truncate">
+                                ${{ '%.2f' | format(monthly_revenue) }} this
+                                month
+                            </p>
+                        </div>
+                        <div
+                            class="w-10 h-10 sm:w-12 sm:h-12 bg-yellow-500 rounded flex items-center justify-center flex-shrink-0 ml-2"
+                        >
+                            <span class="text-white text-base sm:text-lg"
+                                >💰</span
+                            >
+                        </div>
+                    </div>
+                </div>
 
-  <div class="chat-section">
-    <form method="POST">
-      <textarea name="message" placeholder="Ask the assistant something..."></textarea>
-      <button type="submit">Ask</button>
-    </form>
+                <!-- Customers KPI -->
+                <div
+                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                >
+                    <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs text-gray-500 font-medium mb-1">
+                                Customers
+                            </p>
+                            <p
+                                class="text-xl sm:text-2xl font-bold text-gray-900"
+                            >
+                                {{ contacts|length if contacts else 0 }}
+                            </p>
+                            <p class="text-xs text-gray-600 truncate">
+                                {{ contacts|length if contacts else 0 }} total
+                            </p>
+                        </div>
+                        <div
+                            class="w-10 h-10 sm:w-12 sm:h-12 bg-gray-700 rounded flex items-center justify-center flex-shrink-0 ml-2"
+                        >
+                            <span class="text-white text-base sm:text-lg"
+                                >👥</span
+                            >
+                        </div>
+                    </div>
+                </div>
 
-    {% if response %}
-      <div class="response-box">{{ response | safe }}</div>
-    {% endif %}
-  </div>
+                <!-- Expenses KPI -->
+                <div
+                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                >
+                    <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs text-gray-500 font-medium mb-1">
+                                Expenses
+                            </p>
+                            <p
+                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
+                            >
+                                ${{ "%.2f"|format(total_expenses) }}
+                            </p>
+                            <p class="text-xs text-gray-600 truncate">
+                                ${{ "%.2f"|format(monthly_expenses) }} this
+                                month
+                            </p>
+                        </div>
+                        <div
+                            class="w-10 h-10 sm:w-12 sm:h-12 bg-gray-600 rounded flex items-center justify-center flex-shrink-0 ml-2"
+                        >
+                            <span class="text-white text-base sm:text-lg"
+                                >💸</span
+                            >
+                        </div>
+                    </div>
+                </div>
 
-</body>
+                <!-- Profit KPI -->
+                <div
+                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                >
+                    <div class="flex items-center justify-between">
+                        <div class="min-w-0 flex-1">
+                            <p class="text-xs text-gray-500 font-medium mb-1">
+                                Net Profit
+                            </p>
+                            <p
+                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
+                            >
+                                ${{ '%.2f' | format((total_revenue) -
+                                (total_expenses)) }}
+                            </p>
+                            <p class="text-xs text-gray-600 truncate">
+                                {{ '%.1f' | format(((total_revenue) -
+                                (total_expenses)) / (total_revenue) * 100 if
+                                total_revenue else 0) }}% margin
+                            </p>
+                        </div>
+                        <div
+                            class="w-10 h-10 sm:w-12 sm:h-12 bg-yellow-600 rounded flex items-center justify-center flex-shrink-0 ml-2"
+                        >
+                            <span class="text-white text-base sm:text-lg"
+                                >📊</span
+                            >
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Content Row -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+                <!-- Left Column - Revenue & Expenses -->
+                <div class="space-y-4">
+                    <!-- Revenue Chart -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center space-x-2 mb-3">
+                            <div
+                                class="w-6 h-6 sm:w-8 sm:h-8 bg-yellow-500 rounded flex items-center justify-center"
+                            >
+                                <span class="text-white text-xs sm:text-sm"
+                                    >📈</span
+                                >
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900">
+                                    Revenue Trend
+                                </h3>
+                                <p
+                                    class="text-xs text-gray-500 hidden sm:block"
+                                >
+                                    Monthly performance
+                                </p>
+                            </div>
+                        </div>
+                        <div class="h-24 sm:h-32">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
+                        <div class="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
+                            <div class="text-center p-2 bg-gray-50 rounded">
+                                <p class="text-xs text-gray-600 font-medium">
+                                    This Month
+                                </p>
+                                <p class="text-sm font-bold text-gray-900">
+                                    ${{ '%.2f' | format(monthly_revenue) }}
+                                </p>
+                            </div>
+                            <div class="text-center p-2 bg-gray-100 rounded">
+                                <p class="text-xs text-gray-600 font-medium">
+                                    Total
+                                </p>
+                                <p class="text-sm font-bold text-gray-900">
+                                    ${{ '%.2f' | format(total_revenue) }}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Expenses Breakdown -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center space-x-2 mb-3">
+                            <div
+                                class="w-6 h-6 sm:w-8 sm:h-8 bg-gray-700 rounded flex items-center justify-center"
+                            >
+                                <span class="text-white text-xs sm:text-sm"
+                                    >💳</span
+                                >
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900">
+                                    Expense Analysis
+                                </h3>
+                                <p
+                                    class="text-xs text-gray-500 hidden sm:block"
+                                >
+                                    Cost breakdown
+                                </p>
+                            </div>
+                        </div>
+                        <div class="h-24 sm:h-32">
+                            <canvas id="expenseChart"></canvas>
+                        </div>
+                        <div
+                            class="mt-3 space-y-1 max-h-32 sm:max-h-none overflow-y-auto"
+                        >
+                            {% for e in recent_expenses %}
+                            <div
+                                class="flex justify-between items-center p-2 bg-gray-50 rounded text-xs"
+                            >
+                                <span
+                                    class="text-gray-700 font-medium truncate mr-2"
+                                    >{{ e.category }}</span
+                                >
+                                <span
+                                    class="text-gray-900 font-semibold flex-shrink-0"
+                                    >${{ "%.2f"|format(e.amount) }}</span
+                                >
+                            </div>
+                            {% else %}
+                            <p class="text-gray-500 text-center py-3 text-xs">
+                                No expenses recorded.
+                            </p>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Middle Column - Customers & Invoices -->
+                <div class="space-y-4">
+                    <!-- Customers List -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-2">
+                                <div
+                                    class="w-6 h-6 sm:w-8 sm:h-8 bg-gray-600 rounded flex items-center justify-center"
+                                >
+                                    <span class="text-white text-xs sm:text-sm"
+                                        >📇</span
+                                    >
+                                </div>
+                                <div>
+                                    <h3
+                                        class="text-sm font-semibold text-gray-900"
+                                    >
+                                        Customers
+                                    </h3>
+                                    <p class="text-xs text-gray-500">
+                                        {{ contacts|length if contacts else 0 }}
+                                        active
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            class="space-y-2 max-h-32 sm:max-h-48 overflow-y-auto"
+                        >
+                            {% for c in contacts %}
+                            <div
+                                class="flex items-center space-x-2 sm:space-x-3 p-2 bg-gray-50 rounded border border-gray-100"
+                            >
+                                <div
+                                    class="w-6 h-6 sm:w-8 sm:h-8 bg-gray-700 rounded flex items-center justify-center flex-shrink-0"
+                                >
+                                    <span
+                                        class="text-white font-semibold text-xs"
+                                        >{% if c.name %}{{ c.name[0].upper() }}{% else %}?{% endif %}</span>
+                                    >
+                                </div>
+                                <div class="flex-1 min-w-0">
+                                    <p
+                                        class="text-sm font-medium text-gray-900 truncate"
+                                    >
+                                        {{ c.name }}
+                                    </p>
+                                    <p class="text-xs text-gray-500 truncate">
+                                        {{ c.email }}
+                                    </p>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 sm:py-8">
+                                <div
+                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
+                                >
+                                    <span
+                                        class="text-gray-400 text-base sm:text-lg"
+                                        >👥</span
+                                    >
+                                </div>
+                                <p class="text-gray-500 text-xs">
+                                    No customers yet.
+                                </p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Invoices Overview -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-2">
+                                <div
+                                    class="w-6 h-6 sm:w-8 sm:h-8 bg-yellow-500 rounded flex items-center justify-center"
+                                >
+                                    <span class="text-white text-xs sm:text-sm"
+                                        >📄</span
+                                    >
+                                </div>
+                                <div>
+                                    <h3
+                                        class="text-sm font-semibold text-gray-900"
+                                    >
+                                        Invoices
+                                    </h3>
+                                    <p class="text-xs text-gray-500">
+                                        {{ invoices|length if invoices else 0 }}
+                                        active
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        <div
+                            class="space-y-2 max-h-32 sm:max-h-48 overflow-y-auto"
+                        >
+                            {% for i in invoices %}
+                            <div
+                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
+                            >
+                                <div
+                                    class="flex justify-between items-start mb-1"
+                                >
+                                    <div class="min-w-0 flex-1">
+                                        <p
+                                            class="text-sm font-semibold text-gray-900 truncate"
+                                        >
+                                            Invoice #{{ i.id }}
+                                        </p>
+                                        <p
+                                            class="text-xs text-gray-600 truncate"
+                                        >
+                                            {{ i.contact.name }}
+                                        </p>
+                                    </div>
+                                    <span
+                                        class="px-2 py-1 text-xs font-semibold rounded ml-2 flex-shrink-0 {% if i.status == 'paid' %}bg-green-100 text-green-800{% elif i.status == 'pending' %}bg-yellow-100 text-yellow-800{% else %}bg-red-100 text-red-800{% endif %}"
+                                    >
+                                        {{ i.status }}
+                                    </span>
+                                </div>
+                                <div class="flex justify-between items-center">
+                                    <p class="text-sm font-bold text-gray-900">
+                                        ${{ i.total_amount }}
+                                    </p>
+                                    <p class="text-xs text-gray-500">
+                                        Due {{ i.due_date }}
+                                    </p>
+                                </div>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 sm:py-8">
+                                <div
+                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
+                                >
+                                    <span
+                                        class="text-gray-400 text-base sm:text-lg"
+                                        >📋</span
+                                    >
+                                </div>
+                                <p class="text-gray-500 text-xs">
+                                    No invoices yet.
+                                </p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column - Activity & Events -->
+                <div class="space-y-4">
+                    <!-- Recent Interactions -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center space-x-2 mb-3">
+                            <div
+                                class="w-6 h-6 sm:w-8 sm:h-8 bg-gray-600 rounded flex items-center justify-center"
+                            >
+                                <span class="text-white text-xs sm:text-sm"
+                                    >📝</span
+                                >
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900">
+                                    Activity
+                                </h3>
+                                <p
+                                    class="text-xs text-gray-500 hidden sm:block"
+                                >
+                                    Latest interactions
+                                </p>
+                            </div>
+                        </div>
+                        <div
+                            class="space-y-2 max-h-32 sm:max-h-52 overflow-y-auto"
+                        >
+                            {% for i in interactions %}
+                            <div
+                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
+                            >
+                                <div
+                                    class="flex justify-between items-start mb-1"
+                                >
+                                    <p
+                                        class="text-sm font-semibold text-gray-900 truncate flex-1"
+                                    >
+                                        {{ i.contact.name }}
+                                    </p>
+                                    <p
+                                        class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded ml-2 flex-shrink-0"
+                                    >
+                                        {{ i.date }}
+                                    </p>
+                                </div>
+                                <div class="mb-1">
+                                    <span
+                                        class="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded"
+                                        >{{ i.type }}</span
+                                    >
+                                </div>
+                                <p class="text-xs text-gray-600 line-clamp-2">
+                                    {{ i.summary }}
+                                </p>
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 sm:py-8">
+                                <div
+                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
+                                >
+                                    <span
+                                        class="text-gray-400 text-base sm:text-lg"
+                                        >💬</span
+                                    >
+                                </div>
+                                <p class="text-gray-500 text-xs">
+                                    No interactions yet.
+                                </p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+
+                    <!-- Upcoming Events -->
+                    <div
+                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+                    >
+                        <div class="flex items-center space-x-2 mb-3">
+                            <div
+                                class="w-6 h-6 sm:w-8 sm:h-8 bg-yellow-600 rounded flex items-center justify-center"
+                            >
+                                <span class="text-white text-xs sm:text-sm"
+                                    >📅</span
+                                >
+                            </div>
+                            <div>
+                                <h3 class="text-sm font-semibold text-gray-900">
+                                    Events
+                                </h3>
+                                <p class="text-xs text-gray-500">
+                                    {{ events|length if events else 0 }}
+                                    scheduled
+                                </p>
+                            </div>
+                        </div>
+                        <div
+                            class="space-y-2 max-h-32 sm:max-h-52 overflow-y-auto"
+                        >
+                            {% for e in events %}
+                            <div
+                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
+                            >
+                                <p
+                                    class="text-sm font-semibold text-gray-900 mb-1 truncate"
+                                >
+                                    {{ e.title }}
+                                </p>
+                                <div
+                                    class="flex justify-between items-center mb-1"
+                                >
+                                    <span
+                                        class="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded"
+                                        >{{ e.date.strftime('%b %d %I:%M %p')
+                                        }}</span
+                                    >
+                                </div>
+                                {% if e.contact %}
+                                <p class="text-xs text-gray-600 truncate">
+                                    with {{ e.contact.name }}
+                                </p>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <div class="text-center py-4 sm:py-8">
+                                <div
+                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
+                                >
+                                    <span
+                                        class="text-gray-400 text-base sm:text-lg"
+                                        >🗓️</span
+                                    >
+                                </div>
+                                <p class="text-gray-500 text-xs">
+                                    No events scheduled.
+                                </p>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Calendar Section -->
+            <div
+                class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
+            >
+                <div
+                    class="flex flex-col sm:flex-row sm:items-center justify-between mb-4 space-y-2 sm:space-y-0"
+                >
+                    <div class="flex items-center space-x-2 sm:space-x-3">
+                        <div
+                            class="w-8 h-8 sm:w-10 sm:h-10 bg-gray-900 rounded flex items-center justify-center"
+                        >
+                            <span class="text-white text-sm sm:text-base"
+                                >📅</span
+                            >
+                        </div>
+                        <div>
+                            <h3
+                                class="text-base sm:text-lg font-bold text-gray-900"
+                            >
+                                Weekly Schedule
+                            </h3>
+                            <p class="text-xs sm:text-sm text-gray-500">
+                                Your calendar overview
+                            </p>
+                        </div>
+                    </div>
+                    <div
+                        class="px-2 sm:px-3 py-1 bg-yellow-100 rounded border border-yellow-200 self-start sm:self-auto"
+                    >
+                        <p class="text-xs font-semibold text-yellow-800">
+                            {{ weekly_events|length if weekly_events else 0 }}
+                            events this week
+                        </p>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <div
+                        class="grid grid-cols-8 min-w-[600px] sm:min-w-[700px] gap-1"
+                    >
+                        <div class="p-1 sm:p-2"></div>
+                        {% for i in range(7) %}
+                        <div
+                            class="p-1 sm:p-2 bg-gray-100 rounded font-semibold text-gray-700 text-center text-xs border border-gray-200"
+                        >
+                            {{ (start + timedelta(days=i)).strftime('%a %b %d')
+                            }}
+                        </div>
+                        {% endfor %} {% for hour in range(8, 18) %}
+                        <div
+                            class="p-1 sm:p-2 text-xs font-semibold text-gray-600 bg-gray-100 rounded text-center border border-gray-200"
+                        >
+                            {{ "%02d:00" % hour }}
+                        </div>
+                        {% for day in range(7) %}
+                        <div
+                            class="p-1 min-h-[30px] sm:min-h-[40px] border border-gray-200 rounded relative hover:bg-gray-50 transition-colors"
+                        >
+                            {% for e in weekly_events %} {% if e.date.weekday()
+                            == day and e.date.hour == hour %}
+                            <div
+                                class="absolute inset-1 bg-yellow-500 text-white p-1 rounded text-xs font-semibold enterprise-shadow"
+                                title="{{ e.title }} at {{ e.location }}"
+                            >
+                                <span class="hidden sm:inline"
+                                    >{{ e.title }}</span
+                                >
+                                <span class="sm:hidden"
+                                    >{{ e.title[:8] }}...</span
+                                >
+                            </div>
+                            {% endif %} {% endfor %}
+                        </div>
+                        {% endfor %} {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fixed Bottom Chat Input -->
+        <div
+            id="chatInputBar"
+            class="fixed bottom-0 left-0 right-0 z-50 chat-transition"
+        >
+            <div class="bg-white border-t border-gray-200 px-4 py-3 shadow-lg">
+                <div class="max-w-7xl mx-auto">
+                    <div class="flex items-center space-x-3">
+                        <!-- AI Avatar -->
+                        <div
+                            class="w-10 h-10 bg-yellow-500 rounded-full flex items-center justify-center flex-shrink-0"
+                        >
+                            <span class="text-white text-sm">🤖</span>
+                        </div>
+
+                        <!-- Chat Input -->
+                        <div class="flex-1 relative">
+                            <form method="POST">
+                                <input
+                                    type="text"
+                                    name="message"
+                                    id="messageInput"
+                                    placeholder="Ask your AI assistant anything about your business..."
+                                    class="w-full p-3 pr-12 border border-gray-300 rounded-full text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all duration-200 bg-gray-50 focus:bg-white"
+                                />
+                                <button
+                                    type="submit"
+                                    id="sendMessageBtn"
+                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 w-8 h-8 bg-yellow-500 text-white rounded-full hover:bg-yellow-600 transition-colors flex items-center justify-center"
+                                >
+                                    <span class="text-sm">→</span>
+                                </button>
+                            </form>
+                        </div>
+
+                        <!-- Chat History Button -->
+                        <button
+                            id="openChatHistoryBtn"
+                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full transition-colors text-sm font-medium flex items-center space-x-2"
+                        >
+                            <span>💬</span>
+                            <span class="hidden sm:inline">History</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat History Modal -->
+        <div id="chatModal" class="fixed inset-0 z-[100] hidden">
+            <!-- Backdrop -->
+            <div
+                class="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
+            ></div>
+
+            <!-- Modal Content -->
+            <div
+                class="flex items-center justify-center min-h-screen p-2 sm:p-4"
+            >
+                <div
+                    class="relative bg-white rounded-lg w-full max-w-4xl h-[95vh] sm:max-h-[80vh] modal-shadow modal-enter flex flex-col"
+                >
+                    <!-- Modal Header -->
+                    <div
+                        id="chatModalHeader"
+                        class="draggable bg-gray-900 text-white p-3 sm:p-4 rounded-t-lg cursor-move flex-shrink-0"
+                    >
+                        <div class="flex items-center justify-between">
+                            <div
+                                class="flex items-center space-x-2 sm:space-x-3"
+                            >
+                                <div
+                                    class="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center"
+                                >
+                                    <span class="text-sm">🤖</span>
+                                </div>
+                                <div>
+                                    <h2
+                                        class="text-base sm:text-lg font-semibold"
+                                    >
+                                        AI Assistant Chat
+                                    </h2>
+                                    <p
+                                        class="text-xs sm:text-sm text-gray-300 hidden sm:block"
+                                    >
+                                        Complete conversation history
+                                    </p>
+                                </div>
+                            </div>
+                            <div class="flex space-x-1 sm:space-x-2">
+                                <button
+                                    id="minimizeChatBtn"
+                                    class="w-8 h-8 sm:w-8 sm:h-8 bg-gray-700 hover:bg-gray-600 rounded flex items-center justify-center transition-colors touch-manipulation"
+                                >
+                                    <span class="text-white text-sm">−</span>
+                                </button>
+                                <button
+                                    id="closeChatBtn"
+                                    class="w-8 h-8 sm:w-8 sm:h-8 bg-red-600 hover:bg-red-500 rounded flex items-center justify-center transition-colors touch-manipulation"
+                                >
+                                    <span class="text-white text-sm">×</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Chat Messages Area -->
+                    <div
+                        id="chatMessagesArea"
+                        class="flex-1 p-3 sm:p-6 overflow-y-auto"
+                    >
+                        <div class="space-y-3 sm:space-y-4" id="chatMessages">
+                            <!-- Mock Chat History - same as mock file -->
+                            <div class="chat-message">
+                                <div
+                                    class="flex items-start space-x-2 sm:space-x-3"
+                                >
+                                    <div
+                                        class="w-7 h-7 sm:w-8 sm:h-8 bg-yellow-500 rounded-full flex items-center justify-center flex-shrink-0"
+                                    >
+                                        <span
+                                            class="text-white text-xs sm:text-sm"
+                                            >🤖</span
+                                        >
+                                    </div>
+                                    <div
+                                        class="bg-gray-100 rounded-lg p-3 sm:p-4 max-w-[85%] sm:max-w-2xl"
+                                    >
+                                        <p
+                                            class="text-sm sm:text-base text-gray-800"
+                                        >
+                                            Hello! I'm your AI assistant. I can
+                                            help you with business insights,
+                                            customer data analysis, revenue
+                                            tracking, and answer questions about
+                                            your CRM. What would you like to
+                                            know?
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            10:30 AM
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-message">
+                                <div
+                                    class="flex items-start space-x-2 sm:space-x-3 justify-end"
+                                >
+                                    <div
+                                        class="bg-yellow-500 text-white rounded-lg p-3 sm:p-4 max-w-[85%] sm:max-w-2xl"
+                                    >
+                                        <p class="text-sm sm:text-base">
+                                            What's my total revenue this month?
+                                        </p>
+                                        <p class="text-xs text-yellow-200 mt-2">
+                                            10:31 AM
+                                        </p>
+                                    </div>
+                                    <div
+                                        class="w-7 h-7 sm:w-8 sm:h-8 bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0"
+                                    >
+                                        <span
+                                            class="text-white text-xs sm:text-sm"
+                                            >U</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-message">
+                                <div
+                                    class="flex items-start space-x-2 sm:space-x-3"
+                                >
+                                    <div
+                                        class="w-7 h-7 sm:w-8 sm:h-8 bg-yellow-500 rounded-full flex items-center justify-center flex-shrink-0"
+                                    >
+                                        <span
+                                            class="text-white text-xs sm:text-sm"
+                                            >🤖</span
+                                        >
+                                    </div>
+                                    <div
+                                        class="bg-gray-100 rounded-lg p-3 sm:p-4 max-w-[85%] sm:max-w-2xl"
+                                    >
+                                        <p
+                                            class="text-sm sm:text-base text-gray-800"
+                                        >
+                                            Based on your current data, your
+                                            total revenue this month is
+                                            <strong
+                                                >${{ '%.2f' |
+                                                format(monthly_revenue)
+                                                }}</strong
+                                            >. This represents a solid
+                                            performance compared to previous
+                                            months.
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            10:31 AM
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-message">
+                                <div
+                                    class="flex items-start space-x-2 sm:space-x-3 justify-end"
+                                >
+                                    <div
+                                        class="bg-yellow-500 text-white rounded-lg p-3 sm:p-4 max-w-[85%] sm:max-w-2xl"
+                                    >
+                                        <p class="text-sm sm:text-base">
+                                            How many customers do we have?
+                                        </p>
+                                        <p class="text-xs text-yellow-200 mt-2">
+                                            10:32 AM
+                                        </p>
+                                    </div>
+                                    <div
+                                        class="w-7 h-7 sm:w-8 sm:h-8 bg-gray-600 rounded-full flex items-center justify-center flex-shrink-0"
+                                    >
+                                        <span
+                                            class="text-white text-xs sm:text-sm"
+                                            >U</span
+                                        >
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="chat-message">
+                                <div
+                                    class="flex items-start space-x-2 sm:space-x-3"
+                                >
+                                    <div
+                                        class="w-7 h-7 sm:w-8 sm:h-8 bg-yellow-500 rounded-full flex items-center justify-center flex-shrink-0"
+                                    >
+                                        <span
+                                            class="text-white text-xs sm:text-sm"
+                                            >🤖</span
+                                        >
+                                    </div>
+                                    <div
+                                        class="bg-gray-100 rounded-lg p-3 sm:p-4 max-w-[85%] sm:max-w-2xl"
+                                    >
+                                        <p
+                                            class="text-sm sm:text-base text-gray-800"
+                                        >
+                                            You currently have {{
+                                            contacts|length if contacts else 0
+                                            }} active customers in your
+                                            database. Would you like me to
+                                            provide more details about customer
+                                            segmentation or recent acquisitions?
+                                        </p>
+                                        <p class="text-xs text-gray-500 mt-2">
+                                            10:32 AM
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Modal Chat Input -->
+                    <div
+                        class="border-t border-gray-200 p-3 sm:p-4 flex-shrink-0"
+                    >
+                        <form method="POST">
+                            <div class="flex space-x-2 sm:space-x-3">
+                                <input
+                                    type="text"
+                                    name="message"
+                                    id="modalChatInput"
+                                    placeholder="Type your message here..."
+                                    class="flex-1 p-3 sm:p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors"
+                                />
+                                <button
+                                    type="submit"
+                                    id="modalSendBtn"
+                                    class="px-4 sm:px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors font-medium text-sm touch-manipulation"
+                                >
+                                    Send
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            window.addEventListener("load", function () {
+                try {
+                    // Revenue Chart
+                    const revenueCtx = document.getElementById("revenueChart");
+                    if (revenueCtx && typeof Chart !== "undefined") {
+                        new Chart(revenueCtx, {
+                            type: "line",
+                            data: {
+                                labels: [
+                                    "Week 1",
+                                    "Week 2",
+                                    "Week 3",
+                                    "Week 4",
+                                ],
+                                datasets: [
+                                    {
+                                        data: [0, 0, 0, 0], // Will be populated by backend
+                                        borderColor: "#FFC107",
+                                        backgroundColor:
+                                            "rgba(255, 193, 7, 0.1)",
+                                        borderWidth: 2,
+                                        fill: true,
+                                        tension: 0.3,
+                                        pointRadius: 3,
+                                        pointBackgroundColor: "#FFC107",
+                                    },
+                                ],
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: { legend: { display: false } },
+                                scales: {
+                                    x: {
+                                        grid: { display: false },
+                                        ticks: {
+                                            color: "#6b7280",
+                                            font: { size: 10 },
+                                        },
+                                    },
+                                    y: {
+                                        grid: {
+                                            color: "rgba(107, 114, 128, 0.1)",
+                                        },
+                                        ticks: {
+                                            color: "#6b7280",
+                                            font: { size: 10 },
+                                        },
+                                    },
+                                },
+                            },
+                        });
+                    }
+
+                    // Expense Chart
+                    const expenseCtx = document.getElementById("expenseChart");
+                    if (expenseCtx && typeof Chart !== "undefined") {
+                        new Chart(expenseCtx, {
+                            type: "doughnut",
+                            data: {
+                                labels: ["No data"],
+                                datasets: [
+                                    {
+                                        data: [1],
+                                        backgroundColor: ["#e5e7eb"],
+                                        borderWidth: 2,
+                                        borderColor: "#ffffff",
+                                    },
+                                ],
+                            },
+                            options: {
+                                responsive: true,
+                                maintainAspectRatio: false,
+                                plugins: {
+                                    legend: { display: false },
+                                    tooltip: {
+                                        callbacks: {
+                                            label: function (context) {
+                                                return "No data available";
+                                            },
+                                        },
+                                    },
+                                },
+                                cutout: "60%",
+                            },
+                        });
+                    }
+
+                    // Chat functionality
+                    const messageInput =
+                        document.getElementById("messageInput");
+                    const openChatHistoryBtn =
+                        document.getElementById("openChatHistoryBtn");
+                    const chatModal = document.getElementById("chatModal");
+                    const chatModalHeader =
+                        document.getElementById("chatModalHeader");
+                    const closeChatBtn =
+                        document.getElementById("closeChatBtn");
+                    const minimizeChatBtn =
+                        document.getElementById("minimizeChatBtn");
+                    const modalChatInput =
+                        document.getElementById("modalChatInput");
+                    const chatMessagesArea =
+                        document.getElementById("chatMessagesArea");
+
+                    // Open chat history modal
+                    if (openChatHistoryBtn && chatModal) {
+                        openChatHistoryBtn.addEventListener(
+                            "click",
+                            function () {
+                                chatModal.classList.remove("hidden");
+                                modalChatInput.focus();
+                                // Scroll to bottom
+                                setTimeout(() => {
+                                    chatMessagesArea.scrollTop =
+                                        chatMessagesArea.scrollHeight;
+                                }, 100);
+                            }
+                        );
+                    }
+
+                    // Close chat modal
+                    if (closeChatBtn && chatModal) {
+                        closeChatBtn.addEventListener("click", function (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            chatModal.classList.add("hidden");
+                        });
+                    }
+
+                    // Minimize chat modal
+                    if (minimizeChatBtn && chatModal) {
+                        minimizeChatBtn.addEventListener("click", function (e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            chatModal.classList.add("hidden");
+                        });
+                    }
+
+                    // Close modal on backdrop click
+                    if (chatModal) {
+                        chatModal.addEventListener("click", function (e) {
+                            if (e.target === chatModal) {
+                                chatModal.classList.add("hidden");
+                            }
+                        });
+                    }
+
+                    // Auto-scroll chat history to bottom
+                    if (chatMessagesArea) {
+                        chatMessagesArea.scrollTop =
+                            chatMessagesArea.scrollHeight;
+                    }
+
+                    // Dragging functionality for chat modal
+                    if (chatModal && chatModalHeader) {
+                        let isDragging = false;
+                        let currentX = 0,
+                            currentY = 0,
+                            initialX = 0,
+                            initialY = 0;
+                        let xOffset = 0,
+                            yOffset = 0;
+
+                        function dragStart(e) {
+                            if (
+                                e.target.closest("#minimizeChatBtn") ||
+                                e.target.closest("#closeChatBtn")
+                            )
+                                return;
+
+                            const clientX =
+                                e.clientX ||
+                                (e.touches && e.touches[0].clientX);
+                            const clientY =
+                                e.clientY ||
+                                (e.touches && e.touches[0].clientY);
+
+                            if (clientX === undefined || clientY === undefined)
+                                return;
+
+                            initialX = clientX - xOffset;
+                            initialY = clientY - yOffset;
+                            isDragging = true;
+
+                            const modalContent =
+                                chatModalHeader.closest(".relative");
+                            if (modalContent) {
+                                modalContent.classList.add("dragging");
+                            }
+                        }
+
+                        function drag(e) {
+                            if (isDragging) {
+                                e.preventDefault();
+
+                                const clientX =
+                                    e.clientX ||
+                                    (e.touches && e.touches[0].clientX);
+                                const clientY =
+                                    e.clientY ||
+                                    (e.touches && e.touches[0].clientY);
+
+                                if (
+                                    clientX === undefined ||
+                                    clientY === undefined
+                                )
+                                    return;
+
+                                currentX = clientX - initialX;
+                                currentY = clientY - initialY;
+                                xOffset = currentX;
+                                yOffset = currentY;
+
+                                const modalContent =
+                                    chatModalHeader.closest(".relative");
+                                if (modalContent) {
+                                    modalContent.style.transform = `translate3d(${currentX}px, ${currentY}px, 0)`;
+                                }
+                            }
+                        }
+
+                        function dragEnd() {
+                            initialX = currentX;
+                            initialY = currentY;
+                            isDragging = false;
+
+                            const modalContent =
+                                chatModalHeader.closest(".relative");
+                            if (modalContent) {
+                                modalContent.classList.remove("dragging");
+                            }
+                        }
+
+                        // Mouse events
+                        chatModalHeader.addEventListener(
+                            "mousedown",
+                            dragStart
+                        );
+                        document.addEventListener("mousemove", drag);
+                        document.addEventListener("mouseup", dragEnd);
+
+                        // Touch events
+                        chatModalHeader.addEventListener(
+                            "touchstart",
+                            dragStart,
+                            { passive: false }
+                        );
+                        document.addEventListener("touchmove", drag, {
+                            passive: false,
+                        });
+                        document.addEventListener("touchend", dragEnd);
+                    }
+                } catch (error) {
+                    console.error("Dashboard initialization error:", error);
+                }
+            });
+        </script>
+    </body>
 </html>

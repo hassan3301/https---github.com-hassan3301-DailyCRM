@@ -468,8 +468,6 @@ def add_contact():
         return redirect("/contacts")
     return render_template("add_contact.html")
 
-if __name__ == "__main__":
-    app.run(debug=True)
 
 @app.route("/invoice/<int:invoice_id>/download")
 def download_invoice(invoice_id):
@@ -513,6 +511,9 @@ def auth_callback():
 def logout():
     session.clear()
     return redirect("/")
+
+if __name__ == "__main__":
+    app.run(debug=True)
 
 
 #with app.app_context():
