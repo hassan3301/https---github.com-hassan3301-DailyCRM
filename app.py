@@ -1,17 +1,18 @@
 from flask import Flask, render_template, request, redirect, session, make_response, url_for, redirect 
 from services.openai_chat import get_openai_response
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func
+from sqlalchemy import func, extract
 from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
 from utils.email_utils import send_email
 from authlib.integrations.flask_client import OAuth
 import os
-import datetime
-from datetime import timedelta
+#import datetime
+from datetime import timedelta, datetime
 import json
 import re
 import ast
 import dateparser
+import calendar
 from weasyprint import HTML
 from collections import defaultdict
 
@@ -45,6 +46,38 @@ google = oauth.register(
     userinfo_endpoint='https://www.googleapis.com/oauth2/v2/userinfo',
     client_kwargs={'scope': 'email profile'},
 )
+
+def get_last_4_months():
+    today = datetime.today()
+    months = []
+    for i in range(3, -1, -1):  # last 4 months including current
+        month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+        month_date = month_date.replace(month=((today.month - i - 1) % 12) + 1)
+        if month_date.month > today.month:
+            month_date = month_date.replace(year=today.year - 1)
+        months.append((month_date.year, month_date.month))
+    return months
+
+from sqlalchemy import extract, func
+
+def get_monthly_revenue(user_id):
+    months = get_last_4_months()
+    revenue_map = {f"{calendar.month_name[m]} {y}": 0 for y, m in months}
+
+    for y, m in months:
+        total = db.session.query(func.coalesce(func.sum(Invoice.total_amount), 0)) \
+            .filter_by(user_id=user_id) \
+            .filter(extract('year', Invoice.issue_date) == y) \
+            .filter(extract('month', Invoice.issue_date) == m) \
+            .scalar()
+
+        key = f"{calendar.month_name[m]} {y}"
+        revenue_map[key] = float(total or 0)
+
+    labels = list(revenue_map.keys())
+    values = list(revenue_map.values())
+    return labels, values
+
 
 @app.route("/", methods=["GET", "POST"])
 def index():
@@ -394,7 +427,7 @@ def index():
     interactions = Interaction.query.join(Contact).filter(Contact.user_id == user_id).order_by(Interaction.date.desc()).limit(10).all()
     events = Event.query.join(Contact, isouter=True).filter(
         (Contact.user_id == user_id) | (Event.contact_id == None)
-    ).filter(Event.date >= datetime.datetime.now()).order_by(Event.date).limit(5).all()
+    ).filter(Event.date >= datetime.now()).order_by(Event.date).limit(5).all()
 
     total_revenue = (
         db.session.query(func.sum(Revenue.amount))
@@ -405,7 +438,7 @@ def index():
         or 0
     )
 
-    start_of_month = datetime.date.today().replace(day=1)
+    start_of_month = datetime.today().replace(day=1)
     monthly_revenue = (
         db.session.query(func.sum(Revenue.amount))
         .join(Invoice)
@@ -425,8 +458,8 @@ def index():
     )
     recent_expenses = Expense.query.filter_by(user_id=user_id).order_by(Expense.date.desc()).limit(5).all()
 
-    start_of_week = datetime.datetime.now() - datetime.timedelta(days=datetime.datetime.now().weekday())
-    end_of_week = start_of_week + datetime.timedelta(days=7)
+    start_of_week = datetime.now() - timedelta(days=datetime.now().weekday())
+    end_of_week = start_of_week + timedelta(days=7)
     weekly_events = Event.query.join(Contact, isouter=True).filter(
         ((Contact.user_id == user_id) | (Event.contact_id == None)) &
         (Event.date >= start_of_week) & (Event.date < end_of_week)
@@ -438,6 +471,8 @@ def index():
 
     expense_labels = list(category_totals.keys())
     expense_values = [category_totals[c] for c in expense_labels]
+
+    revenue_labels, revenue_values = get_monthly_revenue(user_id)
 
     return render_template(
         "index.html",
@@ -455,7 +490,9 @@ def index():
         monthly_expenses=monthly_expenses,
         recent_expenses=recent_expenses,
         expense_labels=expense_labels,
-        expense_values=expense_values
+        expense_values=expense_values,
+        revenue_labels=revenue_labels,
+        revenue_values=revenue_values
     )
 
 
