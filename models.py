@@ -1,5 +1,5 @@
 from flask_sqlalchemy import SQLAlchemy
-import datetime
+from datetime import datetime
 db = SQLAlchemy()
 
 class User(db.Model):
@@ -28,7 +28,7 @@ class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
-    issue_date = db.Column(db.Date, default=datetime.date.today)
+    issue_date = db.Column(db.Date, default=datetime.today)
     due_date = db.Column(db.Date)
     total_amount = db.Column(db.Float)
     status = db.Column(db.String(20), default='unpaid')  # 'unpaid', 'paid'
@@ -41,7 +41,7 @@ class Revenue(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    date = db.Column(db.Date, default=datetime.date.today)
+    date = db.Column(db.Date, default=datetime.today)
 
     invoice = db.relationship('Invoice', backref=db.backref('revenue', uselist=False))
 
@@ -49,7 +49,7 @@ class Interaction(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=False)
-    date = db.Column(db.Date, default=datetime.date.today)
+    date = db.Column(db.Date, default=datetime.today)
     type = db.Column(db.String(20))  # 'call', 'email', etc.
     summary = db.Column(db.Text)
 
@@ -74,6 +74,6 @@ class Expense(db.Model):
     amount = db.Column(db.Float, nullable=False)
     category = db.Column(db.String(100), nullable=False)
     description = db.Column(db.Text)
-    date = db.Column(db.Date, default=datetime.date.today)
+    date = db.Column(db.Date, default=datetime.today)
 
     user = db.relationship('User', backref=db.backref('expenses', lazy=True))

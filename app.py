@@ -61,21 +61,37 @@ def get_last_4_months():
 from sqlalchemy import extract, func
 
 def get_monthly_revenue(user_id):
-    months = get_last_4_months()
-    revenue_map = {f"{calendar.month_name[m]} {y}": 0 for y, m in months}
+    now = datetime.now()
 
-    for y, m in months:
-        total = db.session.query(func.coalesce(func.sum(Invoice.total_amount), 0)) \
-            .filter_by(user_id=user_id) \
-            .filter(extract('year', Invoice.issue_date) == y) \
-            .filter(extract('month', Invoice.issue_date) == m) \
-            .scalar()
+    # Get the first day of the current month, then generate the previous 3
+    months = []
+    for i in range(3, -1, -1):
+        month = (now.replace(day=1) - timedelta(days=30 * i)).replace(day=1)
+        months.append(month)
 
-        key = f"{calendar.month_name[m]} {y}"
-        revenue_map[key] = float(total or 0)
+    # Create keys in format YYYY-MM
+    month_keys = [month.strftime('%Y-%m') for month in months]
 
-    labels = list(revenue_map.keys())
-    values = list(revenue_map.values())
+    # Get all revenue records for this user in the last 4 months
+    start_date = months[0]
+    revenues = (
+        Revenue.query
+        .join(Invoice)
+        .filter(Invoice.user_id == user_id)
+        .filter(Revenue.date >= start_date.date())
+        .all()
+    )
+
+    # Aggregate revenue by month
+    revenue_totals = defaultdict(float)
+    for rev in revenues:
+        key = rev.date.strftime('%Y-%m')
+        revenue_totals[key] += rev.amount
+
+    # Format labels and values for the chart
+    labels = [month.strftime('%B') for month in months]
+    values = [revenue_totals.get(key, 0) for key in month_keys]
+
     return labels, values
 
 
@@ -163,6 +179,7 @@ def index():
 
                     elif action == "create_invoice":
                         data = parsed.get("data", {})
+
                         contact_name = data.get("contact_name", "")
                         contact = Contact.query.filter(Contact.name.ilike(f"%{contact_name}%")).first()
 
@@ -174,19 +191,22 @@ def index():
                                 parsed_date = dateparser.parse(
                                     raw_date,
                                     settings={
-                                        "RELATIVE_BASE": datetime.datetime.now(),
+                                        "RELATIVE_BASE": datetime.now(),
                                         "PREFER_DATES_FROM": "future",
                                         "STRICT_PARSING": True
                                     }
                                 )
+                                print("Parsed date:", parsed_date)
+                            
 
-                                if parsed_date and parsed_date.date() >= datetime.date.today():
+                                if parsed_date and parsed_date.date() >= datetime.today().date():
                                     due_date = parsed_date.date()
                                 else:
-                                    due_date = datetime.date.today()
+                                    due_date = datetime.today().date()
                                     response_log.append(f"⚠️ Could not understand due date '{raw_date}'. Defaulted to today.")
 
                                 amount = float(data.get("amount"))
+                                print("Raw amount:", amount)
 
                                 invoice = Invoice(
                                     contact_id=contact.id,
@@ -254,7 +274,7 @@ def index():
                                 if parsed_date:
                                     parsed_date = parsed_date.date()
                                 else:
-                                    parsed_date = datetime.date.today()
+                                    parsed_date = datetime.today()
 
                                 interaction = Interaction(
                                     contact_id=contact.id,
@@ -337,7 +357,7 @@ def index():
                         parsed_date = dateparser.parse(
                             raw_date,
                             settings={
-                                "RELATIVE_BASE": datetime.datetime.now(),
+                                "RELATIVE_BASE": datetime.now(),
                                 "PREFER_DATES_FROM": "future",
                                 "RETURN_AS_TIMEZONE_AWARE": False
                             },
@@ -345,8 +365,8 @@ def index():
                         )
 
                         if not parsed_date:
-                            parsed_date = datetime.datetime.now()
-                            response_log.append(f"⚠️ Could not understand event date '{raw_date}'. Defaulted to now.")
+                            parsed_date = datetime.now()
+                            print(f"⚠️ Could not understand event date '{raw_date}'. Defaulted to now.")
 
                         contact = None
                         if "contact_name" in data:
@@ -364,10 +384,10 @@ def index():
                         db.session.commit()
 
                         who = f" with {contact.name}" if contact else ""
-                        response_log.append(f"📅 Event created: '{title}'{who} on {parsed_date.strftime('%Y-%m-%d %H:%M')} at {location}")
+                        print(f"📅 Event created: '{title}'{who} on {parsed_date.strftime('%Y-%m-%d %H:%M')} at {location}")
 
                     elif action == "list_upcoming_events":
-                        now = datetime.datetime.now()
+                        now = datetime.now()
                         events = Event.query.filter(Event.date >= now).order_by(Event.date.asc()).limit(5).all()
 
                         if not events:
@@ -386,8 +406,8 @@ def index():
                             description = data.get("description", "")
                             raw_date = data.get("date", "")
 
-                            parsed_date = dateparser.parse(raw_date, settings={"RELATIVE_BASE": datetime.datetime.now()})
-                            expense_date = parsed_date.date() if parsed_date else datetime.date.today()
+                            parsed_date = dateparser.parse(raw_date, settings={"RELATIVE_BASE": datetime.now()})
+                            expense_date = parsed_date.date() if parsed_date else datetime.today()
 
                             expense = Expense(
                                 amount=amount,
