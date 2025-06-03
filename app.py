@@ -13,6 +13,7 @@ import re
 import ast
 import dateparser
 from weasyprint import HTML
+from collections import defaultdict
 
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
@@ -431,6 +432,13 @@ def index():
         (Event.date >= start_of_week) & (Event.date < end_of_week)
     ).all()
 
+    category_totals = defaultdict(float)
+    for e in recent_expenses:
+        category_totals[e.category] += e.amount
+
+    expense_labels = list(category_totals.keys())
+    expense_values = [category_totals[c] for c in expense_labels]
+
     return render_template(
         "index.html",
         response=response,
@@ -446,6 +454,8 @@ def index():
         total_expenses=total_expenses,
         monthly_expenses=monthly_expenses,
         recent_expenses=recent_expenses,
+        expense_labels=expense_labels,
+        expense_values=expense_values
     )
 
 

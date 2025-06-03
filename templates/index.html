@@ -939,6 +939,13 @@
             </div>
         </div>
 
+        <script id="expense-data" type="application/json">
+        {
+        "labels": {{ expense_labels | tojson | safe }},
+        "values": {{ expense_values | tojson | safe }}
+        }
+        </script>
+
         <script>
             window.addEventListener("load", function () {
                 try {
@@ -996,15 +1003,22 @@
 
                     // Expense Chart
                     const expenseCtx = document.getElementById("expenseChart");
+
+                    const expenseDataElement = document.getElementById("expense-data");
+                    const { labels: expenseLabels, values: expenseValues } = JSON.parse(expenseDataElement.textContent || "{}");
+
+
                     if (expenseCtx && typeof Chart !== "undefined") {
                         new Chart(expenseCtx, {
                             type: "doughnut",
                             data: {
-                                labels: ["No data"],
+                                labels: expenseLabels.length ? expenseLabels : ["No data"],
                                 datasets: [
                                     {
-                                        data: [1],
-                                        backgroundColor: ["#e5e7eb"],
+                                        data: expenseValues.length ? expenseValues : [1],
+                                        backgroundColor: [
+                                            "#f87171", "#60a5fa", "#34d399", "#fbbf24", "#a78bfa", "#fb7185"
+                                        ],
                                         borderWidth: 2,
                                         borderColor: "#ffffff",
                                     },
@@ -1018,7 +1032,9 @@
                                     tooltip: {
                                         callbacks: {
                                             label: function (context) {
-                                                return "No data available";
+                                                const label = context.label || "Category";
+                                                const value = context.raw || 0;
+                                                return `${label}: $${value.toFixed(2)}`;
                                             },
                                         },
                                     },
