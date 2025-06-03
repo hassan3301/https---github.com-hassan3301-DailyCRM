@@ -359,7 +359,8 @@ def index():
                                 amount=amount,
                                 category=category,
                                 description=description,
-                                date=expense_date
+                                date=expense_date,
+                                user_id=session["user_id"]
                             )
                             db.session.add(expense)
                             db.session.commit()
