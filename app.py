@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, session, make_response, url_for, redirect 
-from services.openai_chat import get_openai_response
+from services.gemma import get_ollama_response
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, extract
 from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
@@ -15,6 +15,7 @@ import dateparser
 import calendar
 from weasyprint import HTML
 from collections import defaultdict
+
 
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
@@ -104,7 +105,7 @@ def index():
 
     if request.method == "POST":
         user_message = request.form.get("message")
-        assistant_reply = get_openai_response(user_message)
+        assistant_reply = get_ollama_response(user_message)
 
         try:
             # Extract JSON array or object from assistant's response
