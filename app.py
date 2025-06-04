@@ -551,7 +551,12 @@ def download_invoice(invoice_id):
     return response
 
 @app.route("/login")
-def login():
+def login_page():
+    return render_template("login.html")
+
+
+@app.route("/login/google")
+def login_with_google():
     redirect_uri = url_for('auth_callback', _external=True)
     return google.authorize_redirect(redirect_uri)
 

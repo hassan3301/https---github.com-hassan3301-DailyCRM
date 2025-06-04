@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Login | Daily CRM</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-100 flex items-center justify-center min-h-screen">
+    <div class="bg-white shadow-md rounded-lg px-10 py-8 w-full max-w-sm text-center">
+        <img src="{{ url_for('static', filename='Daily Logo.png') }}" alt="Daily Logo" class="h-16 mx-auto mb-6">
+        <h1 class="text-2xl font-bold text-gray-900 mb-4">Welcome to Daily</h1>
+        <p class="text-sm text-gray-600 mb-6">Your AI-powered business dashboard</p>
+
+        <!-- Centered login button -->
+        <a href="{{ url_for('login_with_google') }}"
+           class="flex items-center justify-center gap-3 bg-gray-200 text-gray-900 border border-gray-300 rounded px-5 py-2 hover:bg-gray-300 transition text-sm font-medium shadow mx-auto"
+           style="width: 250px;">
+            <img src="{{ url_for('static', filename='google_icon.png') }}"
+                 alt="Google Logo"
+                 style="width: 20px; height: 20px;" />
+            Sign in with Google
+        </a>
+
+        <p class="text-xs text-gray-500 mt-6">More sign-in options coming soon</p>
+    </div>
+</body>
+</html>
