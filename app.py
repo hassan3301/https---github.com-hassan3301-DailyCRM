@@ -1,51 +1,263 @@
-from flask import Flask, render_template, request, redirect, session, make_response, url_for, redirect 
-from services.openai_chat import get_openai_response
+from flask import Flask, render_template, request, redirect, session, make_response, url_for, jsonify
+from services.vertex_agent import get_agent_response
+import vertexai
+from vertexai import agent_engines
+from google.adk.sessions import InMemorySessionService
+from google.adk.runners import Runner
+from google.genai import types
+from flask_login import login_required, current_user, LoginManager, UserMixin, login_user, logout_user
+from flask_migrate import Migrate
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import func, extract
 from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
 from utils.email_utils import send_email
 from authlib.integrations.flask_client import OAuth
 import os
-#import datetime
 from datetime import timedelta, datetime
-import json
-import re
-import ast
-import dateparser
+from dateutil import parser as dateparser
+import json, re, ast
 import calendar
 from weasyprint import HTML
 from collections import defaultdict
-
+import uuid
+import asyncio
 
 os.environ["OAUTHLIB_INSECURE_TRANSPORT"] = "1"
 
-
 app = Flask(__name__)
-app.secret_key = "supersecret"  # for storing session info
+app.secret_key = os.getenv("SECRET_KEY", "supersecret")
 
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-db.init_app(app)
 
-app.secret_key = os.getenv("SECRET_KEY")
+db.init_app(app)
 oauth = OAuth(app)
 
+migrate = Migrate(app, db)
+
+login_manager = LoginManager()
+login_manager.login_view = 'login_page'
+login_manager.init_app(app)
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Given *user_id*, return the associated User object."""
+    return User.query.get(int(user_id))
+
+vertexai.init(
+    project=os.getenv("GOOGLE_CLOUD_PROJECT"),
+    location=os.getenv("GOOGLE_CLOUD_REGION"),
+    staging_bucket=os.getenv("GOOGLE_CLOUD_BUCKET")
+)
+AGENT = agent_engines.get(os.getenv("VERTEX_AGENT_ID"))
 
 google = oauth.register(
     name='google',
     client_id=os.getenv("GOOGLE_CLIENT_ID"),
     client_secret=os.getenv("GOOGLE_CLIENT_SECRET"),
     access_token_url='https://oauth2.googleapis.com/token',
-    access_token_params=None,
     authorize_url='https://accounts.google.com/o/oauth2/auth',
-    authorize_params={
-        'access_type': 'offline',
-        'prompt': 'consent'
-    },
     api_base_url='https://www.googleapis.com/oauth2/v2/',
     userinfo_endpoint='https://www.googleapis.com/oauth2/v2/userinfo',
     client_kwargs={'scope': 'email profile'},
 )
+
+session_service = InMemorySessionService()
+
+runner = Runner(
+    agent = AGENT,
+    app_name = "Daily",
+    session_service=session_service
+)
+
+# with app.app_context():
+#     db.create_all()
+
+
+def perform_action(action_name: str, data: dict, user_id: int) -> list[str]:
+    logs = []
+
+    # ─── Contacts ────────────────────────────────────────────────────────────────
+    if action_name == "create_contact":
+        c = Contact(
+            name    = data.get("name"),
+            email   = data.get("email"),
+            phone   = data.get("phone"),
+            company = data.get("company"),
+            notes   = data.get("notes", ""),
+            user_id = user_id
+        )
+        db.session.add(c); db.session.commit()
+        logs.append(f"✅ Contact '{c.name}' created.")
+
+    elif action_name in ("read_all_contacts", "list_contacts"):
+        contacts = Contact.query.filter_by(user_id=user_id).all()
+        if not contacts:
+            logs.append("📭 No contacts found.")
+        else:
+            for c in contacts:
+                logs.append(f"- {c.name} ({c.email}, {c.phone})")
+
+    elif action_name == "update_contact":
+        identifier = data.get("identifier","")
+        updates    = data.get("updates",{})
+        contact = Contact.query.filter(
+            (Contact.user_id==user_id),
+            ((Contact.email.ilike(identifier))|
+             (Contact.name.ilike(f"%{identifier}%")))
+        ).first()
+        if not contact:
+            logs.append(f"❌ No contact matching '{identifier}'.")
+        else:
+            for field, val in updates.items():
+                if hasattr(contact, field):
+                    setattr(contact, field, val)
+            db.session.commit()
+            logs.append(f"✅ Contact '{contact.name}' updated.")
+
+    # ─── Invoices ───────────────────────────────────────────────────────────────
+    elif action_name == "create_invoice":
+        contact_name = data.get("contact_name","")
+        contact = Contact.query.filter(
+            Contact.user_id==user_id,
+            Contact.name.ilike(f"%{contact_name}%")
+        ).first()
+        if not contact:
+            logs.append(f"❌ Contact '{contact_name}' not found.")
+        else:
+            # parse due date
+            raw = data.get("due_date","")
+            dt = dateparser.parse(raw) if raw else None
+            if not dt:
+                dt = datetime.today()
+                logs.append(f"⚠️ Couldn't parse due date '{raw}', defaulted to today.")
+            inv = Invoice(
+                user_id      = user_id,
+                contact_id   = contact.id,
+                issue_date   = datetime.today().date(),
+                due_date     = dt.date(),
+                total_amount = float(data.get("amount",0)),
+                notes        = data.get("notes","")
+            )
+            db.session.add(inv); db.session.commit()
+            logs.append(f"✅ Invoice #{inv.id} for {contact.name} created (${inv.total_amount} due {inv.due_date}).")
+
+    elif action_name in ("read_all_invoices","list_invoices"):
+        invs = Invoice.query.filter_by(user_id=user_id).order_by(Invoice.due_date.desc()).all()
+        if not invs:
+            logs.append("📭 No invoices on record.")
+        else:
+            for inv in invs:
+                logs.append(f"- [#{inv.id}] {inv.contact.name}: ${inv.total_amount} due {inv.due_date} ({inv.status})")
+
+    elif action_name == "mark_invoice_paid":
+        inv_id = data.get("invoice_id")
+        inv = Invoice.query.filter_by(user_id=user_id, id=inv_id).first()
+        if not inv:
+            logs.append(f"❌ Invoice #{inv_id} not found.")
+        elif inv.status=="paid":
+            logs.append(f"⚠️ Invoice #{inv.id} is already paid.")
+        else:
+            inv.status = "paid"
+            db.session.commit()
+            # record revenue
+            rev = Revenue(invoice_id=inv.id, amount=inv.total_amount, date=datetime.today().date())
+            db.session.add(rev); db.session.commit()
+            logs.append(f"✅ Invoice #{inv.id} marked paid; revenue ${rev.amount} recorded.")
+
+    # ─── Interactions ────────────────────────────────────────────────────────────
+    elif action_name == "log_interaction":
+        contact_name = data.get("contact_name","")
+        contact = Contact.query.filter(
+            Contact.user_id==user_id,
+            Contact.name.ilike(f"%{contact_name}%")
+        ).first()
+        if not contact:
+            logs.append(f"❌ Contact '{contact_name}' not found.")
+        else:
+            raw = data.get("date","")
+            dt = dateparser.parse(raw) if raw else datetime.today()
+            inter = Interaction(
+                user_id    = user_id,
+                contact_id = contact.id,
+                date       = dt.date() if hasattr(dt, "date") else dt,
+                type       = data.get("type","note"),
+                summary    = data.get("summary","")
+            )
+            db.session.add(inter); db.session.commit()
+            logs.append(f"✅ Logged {inter.type} with {contact.name} on {inter.date}.")
+
+    elif action_name in ("read_interactions","list_interactions"):
+        inters = Interaction.query.filter_by(user_id=user_id).order_by(Interaction.date.desc()).limit(5).all()
+        if not inters:
+            logs.append("📭 No interactions recorded.")
+        else:
+            for i in inters:
+                logs.append(f"- [{i.date}] {i.type} with {i.contact.name}: {i.summary}")
+
+    # ─── Events ──────────────────────────────────────────────────────────────────
+    elif action_name == "create_event":
+        raw = data.get("date","")
+        dt = dateparser.parse(raw)
+        if not dt:
+            dt = datetime.today()
+            logs.append(f"⚠️ Couldn't parse event date '{raw}', defaulted to now.")
+        evt = Event(
+            user_id    = user_id,
+            contact_id = None,
+            title      = data.get("title","Untitled"),
+            date       = dt,
+            description= data.get("description",""),
+            location   = data.get("location","")
+        )
+        # optionally link contact
+        if data.get("contact_name"):
+            c = Contact.query.filter_by(user_id=user_id).filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
+            if c: evt.contact_id = c.id
+        db.session.add(evt); db.session.commit()
+        logs.append(f"✅ Event '{evt.title}' created for {evt.date}.")
+
+    elif action_name in ("list_upcoming_events","read_upcoming_events"):
+        now = datetime.now()
+        evts = Event.query.filter(
+            Event.user_id==user_id,
+            Event.date>=now
+        ).order_by(Event.date.asc()).limit(5).all()
+        if not evts:
+            logs.append("📭 No upcoming events.")
+        else:
+            for e in evts:
+                who = f" with {e.contact.name}" if e.contact else ""
+                logs.append(f"- [{e.date.strftime('%b %d %I:%M %p')}] {e.title}{who}")
+
+    # ─── Expenses ─────────────────────────────────────────────────────────────────
+    elif action_name == "create_expense":
+        raw = data.get("date","")
+        dt = dateparser.parse(raw).date() if raw else datetime.today().date()
+        exp = Expense(
+            user_id    = user_id,
+            amount     = float(data.get("amount",0)),
+            category   = data.get("category","Uncategorized"),
+            description= data.get("description",""),
+            date       = dt
+        )
+        db.session.add(exp); db.session.commit()
+        logs.append(f"✅ Logged expense ${exp.amount:.2f} for '{exp.category}' on {exp.date}.")
+
+    elif action_name in ("read_expenses","list_expenses"):
+        exps = Expense.query.filter_by(user_id=user_id).order_by(Expense.date.desc()).limit(5).all()
+        if not exps:
+            logs.append("📭 No expenses recorded.")
+        else:
+            for e in exps:
+                logs.append(f"- ${e.amount:.2f} ({e.category}) on {e.date}")
+
+    
+
+    else:
+        logs.append(f"⚠️ Unknown action: {action_name}")
+
+    return logs
 
 def get_last_4_months():
     today = datetime.today()
@@ -94,409 +306,161 @@ def get_monthly_revenue(user_id):
 
     return labels, values
 
-
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET"])
+@login_required
 def index():
-    if "user_id" not in session:
-        return redirect("/login")
+    # ─── 1) Load all dashboard data ──────────────────────────────────────────
+    user_id = current_user.id
+  
 
-    response = ""
+    contacts         = Contact.query.filter_by(user_id=user_id).all()
+    invoices         = Invoice.query.filter_by(user_id=user_id).all()
+    interactions     = (
+        Interaction.query
+        .filter_by(user_id=user_id)
+        .order_by(Interaction.date.desc())
+        .limit(10)
+        .all()
+    )
+    events           = (
+        Event.query
+        .filter_by(user_id=user_id)
+        .filter(Event.date >= datetime.now())
+        .order_by(Event.date)
+        .limit(5)
+        .all()
+    )
+    recent_expenses  = (
+        Expense.query
+        .filter_by(user_id=user_id)
+        .order_by(Expense.date.desc())
+        .limit(5)
+        .all()
+    )
 
-    if request.method == "POST":
-        user_message = request.form.get("message")
-        assistant_reply = get_openai_response(user_message)
-
-        try:
-            # Extract JSON array or object from assistant's response
-            match = re.search(r"\[.*\]|\{.*\}", assistant_reply, re.DOTALL)
-            if match:
-                raw = match.group(0)
-
-                # Try parsing with json, fallback to ast
-                try:
-                    actions = json.loads(raw)
-                except json.JSONDecodeError:
-                    actions = ast.literal_eval(raw)
-
-                # If a single dict, make it a list
-                if isinstance(actions, dict):
-                    actions = [actions]
-
-                response_log = []
-                for parsed in actions:
-                    action = parsed.get("action")
-
-                    if action == "create_contact":
-                        data = parsed.get("data", {})
-                        new_contact = Contact(
-                            name=data.get("name"),
-                            email=data.get("email"),
-                            phone=data.get("phone"),
-                            company=data.get("company"),
-                            notes=data.get("notes", ""),
-                            user_id=session["user_id"]
-                        )
-                        db.session.add(new_contact)
-                        db.session.commit()
-                        response_log.append(f"✅ New contact '{new_contact.name}' added to the CRM.")
-
-                    elif action == "read_all_contacts":
-                        contacts = Contact.query.all()
-                        if not contacts:
-                            response_log.append("📭 Your contact list is currently empty.")
-                        else:
-                            contact_lines = [
-                                f"- {c.name} ({c.email}, {c.phone}, {c.company})"
-                                for c in contacts
-                            ]
-                            response_log.append("📇 Here are your contacts:\n\n" + "\n".join(contact_lines))
-
-                    elif action == "update_contact":
-                        identifier = parsed.get("identifier", "")
-                        updates = parsed.get("updates", {})
-                        contact = Contact.query.filter(
-                            (Contact.email.ilike(identifier)) | (Contact.name.ilike(f"%{identifier}%"))
-                        ).first()
-
-                        if not contact:
-                            response_log.append(f"❌ No contact found with identifier '{identifier}'.")
-                        else:
-                            valid_fields = {"name", "email", "phone", "company", "status", "notes"}
-                            invalid_fields = []
-
-                            for key, value in updates.items():
-                                if key in valid_fields:
-                                    setattr(contact, key, value)
-                                else:
-                                    invalid_fields.append(key)
-
-                            db.session.commit()
-                            updated_fields = ', '.join([k for k in updates if k in valid_fields])
-                            if invalid_fields:
-                                response_log.append(f"⚠️ Updated: {updated_fields}. Skipped: {', '.join(invalid_fields)}")
-                            else:
-                                response_log.append(f"✅ Updated contact '{contact.name}': {updated_fields}.")
-
-                    elif action == "create_invoice":
-                        data = parsed.get("data", {})
-
-                        contact_name = data.get("contact_name", "")
-                        contact = Contact.query.filter(Contact.name.ilike(f"%{contact_name}%")).first()
-
-                        if not contact:
-                            response_log.append(f"❌ Could not find contact '{contact_name}'")
-                        else:
-                            try:
-                                raw_date = data.get("due_date", "")
-                                parsed_date = dateparser.parse(
-                                    raw_date,
-                                    settings={
-                                        "RELATIVE_BASE": datetime.now(),
-                                        "PREFER_DATES_FROM": "future",
-                                        "STRICT_PARSING": True
-                                    }
-                                )
-                                print("Parsed date:", parsed_date)
-                            
-
-                                if parsed_date and parsed_date.date() >= datetime.today().date():
-                                    due_date = parsed_date.date()
-                                else:
-                                    due_date = datetime.today().date()
-                                    response_log.append(f"⚠️ Could not understand due date '{raw_date}'. Defaulted to today.")
-
-                                amount = float(data.get("amount"))
-                                print("Raw amount:", amount)
-
-                                invoice = Invoice(
-                                    contact_id=contact.id,
-                                    due_date=due_date,
-                                    total_amount=amount,
-                                    notes=data.get("notes", ""),
-                                    user_id=session["user_id"]
-                                )
-                                db.session.add(invoice)
-                                db.session.commit()
-
-                                download_url = url_for('download_invoice', invoice_id=invoice.id, _external=True)
-                                response_log.append(f"✅ Invoice created for {contact.name} - ${amount} due {due_date}.")
-                                response_log.append(f"📄 [Download Invoice PDF]({download_url})")
-
-                                response_log.append(f"✅ Invoice created for {contact.name} - ${amount} due {due_date}.")
-                            except Exception as e:
-                                response_log.append(f"❌ Error creating invoice: {str(e)}")
-
-
-                    elif action == "read_all_invoices":
-                        invoices = Invoice.query.order_by(Invoice.due_date.desc()).all()
-                        if not invoices:
-                            response_log.append("📭 You have no invoices on record.")
-                        else:
-                            lines = [
-                                f"- [#{inv.id}] {inv.contact.name}: ${inv.total_amount} due {inv.due_date} ({inv.status})"
-                                for inv in invoices
-                            ]
-                            response_log.append("📄 Here are your invoices:\n\n" + "\n".join(lines))
-
-                    elif action == "mark_invoice_paid":
-                        invoice_id = parsed.get("invoice_id")
-                        invoice = Invoice.query.get(invoice_id)
-
-                        if not invoice:
-                            response_log.append(f"❌ Invoice #{invoice_id} not found.")
-                        elif invoice.status == "paid":
-                            response_log.append(f"⚠️ Invoice #{invoice.id} is already marked as paid.")
-                        else:
-                            invoice.status = "paid"
-                            db.session.commit()
-
-                            revenue_entry = Revenue(
-                                invoice_id=invoice.id,
-                                amount=invoice.total_amount
-                            )
-                            db.session.add(revenue_entry)
-                            db.session.commit()
-
-                            response_log.append(f"✅ Invoice #{invoice.id} marked as paid and ${invoice.total_amount} recorded as revenue.")
-
-                    elif parsed.get("action") == "log_interaction":
-                        data = parsed.get("data", {})
-                        contact_name = data.get("contact_name", "")
-                        contact = Contact.query.filter(Contact.name.ilike(f"%{contact_name}%")).first()
-
-                        if not contact:
-                            response_log.append(f"❌ Could not find contact '{contact_name}'")
-                        else:
-                            try:
-                                # Parse human-readable date or default to today
-                                raw_date = data.get("date", "")
-                                parsed_date = dateparser.parse(raw_date)
-                                if parsed_date:
-                                    parsed_date = parsed_date.date()
-                                else:
-                                    parsed_date = datetime.today()
-
-                                interaction = Interaction(
-                                    contact_id=contact.id,
-                                    type=data.get("type"),
-                                    summary=data.get("summary"),
-                                    date=parsed_date,
-                                    user_id=session["user_id"]
-                                )
-                                db.session.add(interaction)
-                                db.session.commit()
-                                response_log.append(f"✅ Logged a {interaction.type} with {contact.name} on {parsed_date}.")
-                            except Exception as e:
-                                response_log.append(f"❌ Error logging interaction: {str(e)}")
-
-                    elif action == "download_invoice":
-                        invoice_id = parsed.get("invoice_id")
-                        invoice = Invoice.query.get(invoice_id)
-
-                        if invoice:
-                            download_url = url_for('download_invoice', invoice_id=invoice.id, _external=True)
-                            response_log.append(
-                                f"📄 <a href='{download_url}' target='_blank'>Click here to download invoice #{invoice.id}</a>"
-                            )
-                        else:
-                            response_log.append(f"❌ Invoice #{invoice_id} not found.")
-
-                    elif action == "send_email":
-                        to_name = parsed.get("to")
-                        subject = parsed.get("subject", "(No subject)")
-                        body = parsed.get("body", "")
-
-                        contact = Contact.query.filter(Contact.name.ilike(f"%{to_name}%")).first()
-
-                        if not contact:
-                            response_log.append(f"❌ Could not find contact '{to_name}' to send email.")
-                        elif not contact.email:
-                            response_log.append(f"❌ Contact '{to_name}' does not have an email address.")
-                        else:
-                            try:
-                                send_email(contact.email, subject, body)
-                                response_log.append(f"📧 Email sent to {contact.name} at {contact.email}.")
-                            except Exception as e:
-                                response_log.append(f"❌ Failed to send email: {str(e)}")
-
-                    elif action == "send_invoice_email":
-                        contact_name = parsed.get("contact_name")
-                        invoice_index = parsed.get("invoice_index", 1)
-
-                        try:
-                            invoice_index = int(parsed.get("invoice_index", 1))
-                        except ValueError:
-                            invoice_index = 1
-
-                        
-                        contact = Contact.query.filter(Contact.name.ilike(f"%{contact_name}%")).first()
-                        if not contact:
-                            response_log.append(f"❌ Could not find contact '{contact_name}' to send email.")
-                            continue
-
-                        invoices = Invoice.query.filter_by(contact_id=contact.id).order_by(Invoice.due_date.desc()).all()
-
-                        if 1 <= invoice_index <= len(invoices):
-                            invoice = invoices[invoice_index - 1]
-                            try:
-                                from utils.email_utils import send_invoice_email
-                                send_invoice_email(contact, invoice, app)
-                                response_log.append(f"📧 Invoice #{invoice.id} emailed to {contact.name} at {contact.email}.")
-                            except Exception as e:
-                                response_log.append(f"❌ Failed to send invoice email: {str(e)}")
-                        else:
-                            response_log.append(f"❌ Invoice index {invoice_index} out of range for {contact.name}.")
-
-                    elif action == "create_event":
-                        data = parsed.get("data", {})
-                        title = data.get("title")
-                        raw_date = data.get("date", "")
-                        description = data.get("description", "")
-                        location = data.get("location", "")
-
-                        parsed_date = dateparser.parse(
-                            raw_date,
-                            settings={
-                                "RELATIVE_BASE": datetime.now(),
-                                "PREFER_DATES_FROM": "future",
-                                "RETURN_AS_TIMEZONE_AWARE": False
-                            },
-                            languages=["en"]
-                        )
-
-                        if not parsed_date:
-                            parsed_date = datetime.now()
-                            print(f"⚠️ Could not understand event date '{raw_date}'. Defaulted to now.")
-
-                        contact = None
-                        if "contact_name" in data:
-                            contact = Contact.query.filter(Contact.name.ilike(f"%{data['contact_name']}%")).first()
-
-                        event = Event(
-                            title=title,
-                            contact_id=contact.id if contact else None,
-                            date=parsed_date,
-                            description=description,
-                            location=location,
-                            user_id=session["user_id"]
-                        )
-                        db.session.add(event)
-                        db.session.commit()
-
-                        who = f" with {contact.name}" if contact else ""
-                        print(f"📅 Event created: '{title}'{who} on {parsed_date.strftime('%Y-%m-%d %H:%M')} at {location}")
-
-                    elif action == "list_upcoming_events":
-                        now = datetime.now()
-                        events = Event.query.filter(Event.date >= now).order_by(Event.date.asc()).limit(5).all()
-
-                        if not events:
-                            response_log.append("📭 No upcoming events.")
-                        else:
-                            response_log.append("📅 Upcoming Events:")
-                            for e in events:
-                                who = f" with {e.contact.name}" if e.contact else ""
-                                response_log.append(f"- {e.date.strftime('%b %d %I:%M %p')} — {e.title}{who}")
-
-                    elif action == "create_expense":
-                        data = parsed.get("data", {})
-                        try:
-                            amount = float(data.get("amount"))
-                            category = data.get("category", "Uncategorized")
-                            description = data.get("description", "")
-                            raw_date = data.get("date", "")
-
-                            parsed_date = dateparser.parse(raw_date, settings={"RELATIVE_BASE": datetime.now()})
-                            expense_date = parsed_date.date() if parsed_date else datetime.today()
-
-                            expense = Expense(
-                                amount=amount,
-                                category=category,
-                                description=description,
-                                date=expense_date,
-                                user_id=session["user_id"]
-                            )
-                            db.session.add(expense)
-                            db.session.commit()
-                            response_log.append(f"💸 Logged ${amount:.2f} expense for '{category}' on {expense_date}.")
-                        except Exception as e:
-                            response_log.append(f"❌ Error logging expense: {str(e)}")
-
-                    elif action == "read_expenses":
-                        expenses = Expense.query.order_by(Expense.date.desc()).limit(5).all()
-                        if not expenses:
-                            response_log.append("📭 No expenses recorded.")
-                        else:
-                            response_log.append("💸 Recent Expenses:")
-                            for e in expenses:
-                                response_log.append(f"- ${e.amount:.2f} for {e.category} on {e.date}")
-
-                    else:
-                        response_log.append(f"⚠️ Unknown action: {parsed.get('action')}")
-                response = "\n".join(response_log)
-            else:
-                response = assistant_reply
-
-        except Exception as e:
-            response = f"❌ Error parsing or executing actions: {str(e)}"
-
-    user_id = session["user_id"]
-
-    contacts = Contact.query.filter_by(user_id=user_id).all()
-    invoices = Invoice.query.join(Contact).filter(Contact.user_id == user_id).all()
-    interactions = Interaction.query.join(Contact).filter(Contact.user_id == user_id).order_by(Interaction.date.desc()).limit(10).all()
-    events = Event.query.join(Contact, isouter=True).filter(
-        (Contact.user_id == user_id) | (Event.contact_id == None)
-    ).filter(Event.date >= datetime.now()).order_by(Event.date).limit(5).all()
-
+    # revenue / expense aggregates for the charts
     total_revenue = (
         db.session.query(func.sum(Revenue.amount))
-        .join(Invoice)
-        .join(Contact)
+        .join(Invoice).join(Contact)
         .filter(Contact.user_id == user_id)
-        .scalar()
-        or 0
+        .scalar() or 0
     )
-
-    start_of_month = datetime.today().replace(day=1)
-    monthly_revenue = (
+    start_of_month   = datetime.today().replace(day=1)
+    monthly_revenue  = (
         db.session.query(func.sum(Revenue.amount))
-        .join(Invoice)
-        .join(Contact)
+        .join(Invoice).join(Contact)
         .filter(Contact.user_id == user_id, Revenue.date >= start_of_month)
-        .scalar()
-        or 0
+        .scalar() or 0
     )
-
-    total_expenses = db.session.query(func.sum(Expense.amount)).filter_by(user_id=user_id).scalar() or 0
+    total_expenses   = (
+        db.session.query(func.sum(Expense.amount))
+        .filter_by(user_id=user_id)
+        .scalar() or 0
+    )
     monthly_expenses = (
         db.session.query(func.sum(Expense.amount))
         .filter_by(user_id=user_id)
         .filter(Expense.date >= start_of_month)
-        .scalar()
-        or 0
+        .scalar() or 0
     )
-    recent_expenses = Expense.query.filter_by(user_id=user_id).order_by(Expense.date.desc()).limit(5).all()
 
-    start_of_week = datetime.now() - timedelta(days=datetime.now().weekday())
-    end_of_week = start_of_week + timedelta(days=7)
-    weekly_events = Event.query.join(Contact, isouter=True).filter(
-        ((Contact.user_id == user_id) | (Event.contact_id == None)) &
-        (Event.date >= start_of_week) & (Event.date < end_of_week)
-    ).all()
-
+    # prepare chart data
     category_totals = defaultdict(float)
     for e in recent_expenses:
         category_totals[e.category] += e.amount
-
     expense_labels = list(category_totals.keys())
     expense_values = [category_totals[c] for c in expense_labels]
 
-    revenue_labels, revenue_values = get_monthly_revenue(user_id)
+    now    = datetime.now()
+    months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
+              for i in range(3, -1, -1)]
+    month_keys     = [m.strftime("%Y-%m") for m in months]
+    revenues       = (
+        Revenue.query.join(Invoice)
+        .filter(Invoice.user_id == user_id, Revenue.date >= months[0])
+        .all()
+    )
+    revenue_totals = defaultdict(float)
+    for rev in revenues:
+        revenue_totals[rev.date.strftime("%Y-%m")] += rev.amount
+    revenue_labels = [m.strftime("%B") for m in months]
+    revenue_values = [revenue_totals.get(k, 0) for k in month_keys]
 
+    start_of_week  = datetime.now() - timedelta(days=datetime.now().weekday())
+    weekly_events  = (
+        Event.query.join(Contact, isouter=True)
+        .filter(((Contact.user_id == user_id)|(Event.contact_id == None)) &
+                (Event.date >= start_of_week))
+        .all()
+    )
+
+    # ─── 2) Seed the agent session once ───────────────────────────────────────
+    if not current_user.ai_session_id:
+        # Build the same state payload from the data we already loaded
+        initial_state = {
+            "today":        datetime.today().strftime("%Y-%m-%d"),
+            "contacts":     [
+                {"name":c.name, "email":c.email, "phone":c.phone, "company":c.company}
+                for c in contacts
+            ],
+            "invoices":     [
+                {
+                  "id": inv.id,
+                  "contact_name": inv.contact.name,
+                  "issue_date": str(inv.issue_date),
+                  "due_date": str(inv.due_date),
+                  "amount": inv.total_amount,
+                  "status": inv.status
+                }
+                for inv in invoices
+            ],
+            "interactions": [
+                {
+                  "contact_name": ix.contact.name,
+                  "type": ix.type,
+                  "date": str(ix.date),
+                  "summary": ix.summary
+                }
+                for ix in interactions
+            ],
+            "events":       [
+                {
+                  "title": e.title,
+                  "date": str(e.date),
+                  "description": e.description,
+                  "location": e.location,
+                  "contact_name": e.contact.name if e.contact else None
+                }
+                for e in events
+            ],
+            "expenses":     [
+                {
+                  "amount": ex.amount,
+                  "category": ex.category,
+                  "description": ex.description,
+                  "date": str(ex.date)
+                }
+                for ex in recent_expenses
+            ]
+        }
+
+        sess = asyncio.run(
+            session_service.create_session(
+                app_name="Daily",
+                user_id=current_user.email,
+                session_id=str(uuid.uuid4()),
+                state=initial_state
+            )
+        )
+
+        current_user.ai_session_id = sess.id
+        session["ai_session_id"] = sess.id
+        db.session.commit()
+        
+
+    # ─── 3) Render the dashboard ──────────────────────────────────────────────
     return render_template(
         "index.html",
-        response=response,
         contacts=contacts,
         invoices=invoices,
         total_revenue=total_revenue,
@@ -516,27 +480,6 @@ def index():
     )
 
 
-@app.route("/contacts")
-def view_contacts():
-    contacts = Contact.query.all()
-    return render_template("contacts.html", contacts=contacts)
-
-@app.route("/add_contact", methods=["GET", "POST"])
-def add_contact():
-    if request.method == "POST":
-        new_contact = Contact(
-            name=request.form["name"],
-            email=request.form["email"],
-            phone=request.form["phone"],
-            company=request.form["company"],
-            notes=request.form["notes"]
-        )
-        db.session.add(new_contact)
-        db.session.commit()
-        return redirect("/contacts")
-    return render_template("add_contact.html")
-
-
 @app.route("/invoice/<int:invoice_id>/download")
 def download_invoice(invoice_id):
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -550,10 +493,60 @@ def download_invoice(invoice_id):
     response.headers['Content-Disposition'] = f'attachment; filename=invoice_{invoice.id}.pdf'
     return response
 
+
+FENCED_JSON = re.compile(r"```json\s*([\s\S]*?)```", re.IGNORECASE)
+
+@app.route("/chat", methods=["POST"])
+@login_required
+def chat():
+    user_message = request.json.get("message", "").strip()
+    if not user_message:
+        return jsonify(error="Empty message"), 400
+
+    sess_id = current_user.ai_session_id
+    # Build the ADK message object
+    new_message = types.Content(
+        role="user",
+        parts=[types.Part(text=user_message)]
+    )
+
+    text_parts  = []
+    action_logs = []
+
+    # Stream with Runner, which automatically loads your state + history
+    for event in runner.run(
+        user_id    = current_user.email,
+        session_id = sess_id,
+        new_message= new_message
+    ):
+        # function_call handling
+        if event.is_function_call():
+            name = event.function_call.name
+            args = json.loads(event.function_call.arguments)
+            action_logs.extend(perform_action(name, args, current_user.id))
+
+        # final text response
+        if event.is_final_response() and event.content:
+            text = event.content.parts[0].text.strip()
+            # strip any JSON fences, then append
+            cleaned = re.sub(r"```json[\s\S]*?```", "", text).strip()
+            if cleaned:
+                text_parts.append(cleaned)
+
+    # decide reply
+    if action_logs:
+        assistant = "\n".join(action_logs)
+    else:
+        assistant = " ".join(text_parts) or "❌ No response."
+
+    return jsonify(user=user_message, assistant=assistant)
+
+
+
+
 @app.route("/login")
 def login_page():
     return render_template("login.html")
-
 
 @app.route("/login/google")
 def login_with_google():
@@ -562,32 +555,49 @@ def login_with_google():
 
 @app.route("/auth/callback")
 def auth_callback():
-    token = google.authorize_access_token()
-    resp = google.get("userinfo")
-    user_info = resp.json()
+    # 1) Complete OAuth and fetch user info
+    token     = google.authorize_access_token()
+    user_info = google.get("userinfo").json()
+    email, name = user_info["email"], user_info["name"]
 
-    email = user_info["email"]
-    name = user_info["name"]
-
+    # 2) Lookup or create User
     user = User.query.filter_by(email=email).first()
     if not user:
         user = User(email=email, name=name)
         db.session.add(user)
         db.session.commit()
 
-    session["user_id"] = user.id
-    session["user_name"] = user.name
-    return redirect(url_for("index"))
+    user.ai_session_id = None
+    db.session.commit()
 
+
+    # Log in and store in flask.session
+    login_user(user)
+    session["user_id"]       = user.id
+    session["user_name"]     = user.name
+    
+    return redirect(url_for("index"))
 
 @app.route("/logout", methods=["POST"])
 def logout():
+    logout_user()
     session.clear()
     return redirect("/")
+
+@app.route("/debug/agent_state")
+@login_required
+def debug_agent_state():
+    sess = AGENT.get_session(
+        user_id=current_user.email,
+        session_id=current_user.ai_session_id
+    )
+    # return just the state JSON for easy inspection
+    return jsonify(sess.get("state", {}))
 
 if __name__ == "__main__":
     app.run(debug=True)
 
 
-#with app.app_context():
-#    db.create_all()
+
+
+

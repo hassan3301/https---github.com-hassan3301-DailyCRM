@@ -1,11 +1,13 @@
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
+from flask_login import UserMixin
 db = SQLAlchemy()
 
-class User(db.Model):
+class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     email = db.Column(db.String(255), unique=True, nullable=False)
     name = db.Column(db.String(255))
+    ai_session_id  = db.Column(db.String(64), nullable=True)
 
 # Contact belongs to a user
 class Contact(db.Model):
