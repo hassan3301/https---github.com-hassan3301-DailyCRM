@@ -7,8 +7,6 @@ from datetime import timedelta, datetime
 from weasyprint import HTML
 from collections import defaultdict
 import asyncio
-from google.adk.sessions import InMemorySessionService
-from google.adk.runners import Runner
 from google.genai import types
 import uuid, json, re, os
 import vertexai
@@ -51,13 +49,8 @@ vertexai.init(
 )
 AGENT = agent_engines.get(os.getenv("VERTEX_AGENT_ID"))
 
-session_service = InMemorySessionService()
 
-# runner = Runner(
-#     agent = AGENT,
-#     app_name = "Daily",
-#     session_service=session_service
-# )
+
 
 @login_manager.user_loader
 def load_user(user_id):
