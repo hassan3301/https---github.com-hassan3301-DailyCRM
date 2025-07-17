@@ -12,9 +12,11 @@ import uuid, json, re, os
 import vertexai
 from vertexai import agent_engines
 from dotenv import load_dotenv
+import markdown
+from flask_migrate import Migrate
 
 # Local import
-from models import db, Contact, Invoice, Revenue, Interaction, Event, Expense, User
+from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem
 
 load_dotenv()
 # Flask setup
@@ -23,7 +25,7 @@ app.secret_key = os.getenv("SECRET_KEY", "supersecret")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
-
+migrate = Migrate(app, db)
 # OAuth & Login setup
 oauth = OAuth(app)
 login_manager = LoginManager()
@@ -47,6 +49,8 @@ vertexai.init(
     location=os.getenv("GOOGLE_CLOUD_REGION"),
     staging_bucket=os.getenv("GOOGLE_CLOUD_BUCKET")
 )
+
+#print(os.getenv("VERTEX_AGENT_ID"))
 AGENT = agent_engines.get(os.getenv("VERTEX_AGENT_ID"))
 
 
@@ -112,6 +116,7 @@ def index():
 
     contacts         = Contact.query.filter_by(user_id=user_id).all()
     invoices         = Invoice.query.filter_by(user_id=user_id).all()
+    products         = Product.query.filter_by(user_id=user_id).all()
     interactions     = (
         Interaction.query
         .filter_by(user_id=user_id)
@@ -119,14 +124,7 @@ def index():
         .limit(10)
         .all()
     )
-    events           = (
-        Event.query
-        .filter_by(user_id=user_id)
-        .filter(Event.date >= datetime.now())
-        .order_by(Event.date)
-        .limit(5)
-        .all()
-    )
+
     recent_expenses  = (
         Expense.query
         .filter_by(user_id=user_id)
@@ -135,18 +133,22 @@ def index():
         .all()
     )
 
-    # revenue / expense aggregates for the charts
+# ─── Total Revenue ───────────────────────────────
     total_revenue = (
         db.session.query(func.sum(Revenue.amount))
-        .join(Invoice).join(Contact)
-        .filter(Contact.user_id == user_id)
+        .filter(Revenue.user_id == user_id)   # ✅ direct filter
         .scalar() or 0
     )
-    start_of_month   = datetime.today().replace(day=1)
-    monthly_revenue  = (
+
+    # ─── Monthly Revenue ─────────────────────────────
+    start_of_month = datetime.today().replace(day=1)
+
+    monthly_revenue = (
         db.session.query(func.sum(Revenue.amount))
-        .join(Invoice).join(Contact)
-        .filter(Contact.user_id == user_id, Revenue.date >= start_of_month)
+        .filter(
+            Revenue.user_id == user_id,
+            Revenue.date >= start_of_month
+        )
         .scalar() or 0
     )
     total_expenses   = (
@@ -164,10 +166,12 @@ def index():
     # prepare chart data
     category_totals = defaultdict(float)
     for e in recent_expenses:
-        category_totals[e.category] += e.amount
+        category_name = e.category.name if e.category else "Uncategorized"
+        category_totals[category_name] += e.amount
+
     expense_labels = list(category_totals.keys())
     expense_values = [category_totals[c] for c in expense_labels]
-
+    
     now    = datetime.now()
     months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
               for i in range(3, -1, -1)]
@@ -184,12 +188,7 @@ def index():
     revenue_values = [revenue_totals.get(k, 0) for k in month_keys]
 
     start_of_week  = datetime.now() - timedelta(days=datetime.now().weekday())
-    weekly_events  = (
-        Event.query.join(Contact, isouter=True)
-        .filter(((Contact.user_id == user_id)|(Event.contact_id == None)) &
-                (Event.date >= start_of_week))
-        .all()
-    )
+
  
 
     # ─── 3) Render the dashboard ──────────────────────────────────────────────
@@ -200,8 +199,7 @@ def index():
         total_revenue=total_revenue,
         monthly_revenue=monthly_revenue,
         interactions=interactions,
-        events=events,
-        weekly_events=weekly_events,
+        products=products,
         start=start_of_week,
         timedelta=timedelta,
         total_expenses=total_expenses,
@@ -270,7 +268,8 @@ def chat():
                         text_parts.append(str(response_data))
 
     assistant_reply = " ".join(text_parts).strip() or "❌ No response."
-    return jsonify(user=user_message, assistant=assistant_reply)
+    html_reply = markdown.markdown(assistant_reply)
+    return jsonify(user=user_message, assistant=html_reply)
 
 
 

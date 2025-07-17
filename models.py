@@ -42,11 +42,18 @@ class Invoice(db.Model):
     status = db.Column(db.String(20), default='unpaid')  # 'unpaid', 'paid'
     notes = db.Column(db.Text)
 
+
     user = db.relationship('User', backref=db.backref('invoices', lazy=True))
     contact = db.relationship('Contact', backref=db.backref('invoices', lazy=True))
 
+    line_items = db.relationship('InvoiceLineItem', back_populates='invoice', cascade="all, delete-orphan")
+
+
+
+
 class Revenue(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
     date = db.Column(db.Date, default=datetime.today)
@@ -64,24 +71,52 @@ class Interaction(db.Model):
     user = db.relationship('User', backref=db.backref('interactions', lazy=True))
     contact = db.relationship('Contact', backref=db.backref('interactions', lazy=True))
 
-class Event(db.Model):
+class ExpenseCategory(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
-    contact_id = db.Column(db.Integer, db.ForeignKey('contact.id'), nullable=True)
-    title = db.Column(db.String(200), nullable=False)
-    date = db.Column(db.DateTime, nullable=False)
-    description = db.Column(db.Text)
-    location = db.Column(db.String(200))
+    name = db.Column(db.String(100), nullable=False, unique=False)
 
-    user = db.relationship('User', backref=db.backref('events', lazy=True))
-    contact = db.relationship('Contact', backref=db.backref('events', lazy=True))
+    user = db.relationship('User', backref=db.backref('expense_categories', lazy=True))
+    expenses = db.relationship('Expense', back_populates='category', cascade='all, delete-orphan')
+
 
 class Expense(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     amount = db.Column(db.Float, nullable=False)
-    category = db.Column(db.String(100), nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('expense_category.id'), nullable=False)
     description = db.Column(db.Text)
     date = db.Column(db.Date, default=datetime.today)
 
     user = db.relationship('User', backref=db.backref('expenses', lazy=True))
+    category = db.relationship('ExpenseCategory', back_populates='expenses')
+
+
+class Product(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
+    name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    price = db.Column(db.Float, nullable=False)
+
+    user = db.relationship('User', backref=db.backref('products', lazy=True))
+
+    def __repr__(self):
+        return f"<Product {self.name} - ${self.price}>"
+
+
+class InvoiceLineItem(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    quantity = db.Column(db.Integer, default=1, nullable=False)
+    unit_price = db.Column(db.Float, nullable=False)  # snapshot of product.price at time of creation
+
+    invoice = db.relationship('Invoice', back_populates='line_items')
+    product = db.relationship('Product')
+
+    @property
+    def line_total(self):
+        return self.quantity * self.unit_price
+
+
