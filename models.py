@@ -119,4 +119,13 @@ class InvoiceLineItem(db.Model):
     def line_total(self):
         return self.quantity * self.unit_price
 
+class Report(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    report_type = db.Column(db.String(50))
+    period = db.Column(db.String(50))
+    created_at = db.Column(db.DateTime, default=datetime.today)
+    title = db.Column(db.String(255))
+    description = db.Column(db.Text)
+    file_path = db.Column(db.String(255))
 

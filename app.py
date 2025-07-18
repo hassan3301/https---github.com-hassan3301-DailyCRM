@@ -13,10 +13,11 @@ import vertexai
 from vertexai import agent_engines
 from dotenv import load_dotenv
 import markdown
+import tempfile
 from flask_migrate import Migrate
 
 # Local import
-from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem
+from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem, Report
 
 load_dotenv()
 # Flask setup
@@ -163,6 +164,15 @@ def index():
         .scalar() or 0
     )
 
+    reports = (
+         Report.query
+        .filter_by(user_id=user_id)
+        .order_by(Report.created_at.desc())
+        .limit(20)  # or more, or all
+        .all()
+    )
+
+
     # prepare chart data
     category_totals = defaultdict(float)
     for e in recent_expenses:
@@ -208,7 +218,8 @@ def index():
         expense_labels=expense_labels,
         expense_values=expense_values,
         revenue_labels=revenue_labels,
-        revenue_values=revenue_values
+        revenue_values=revenue_values,
+        reports=reports
     )
 
 
@@ -225,6 +236,23 @@ def download_invoice(invoice_id):
     response.headers['Content-Disposition'] = f'attachment; filename=invoice_{invoice.id}.pdf'
     return response
 
+@app.route("/report/pdf/expenses", methods=["POST"])
+@login_required
+def generate_expense_pdf():
+    data = request.json  # expects full structured expense report JSON
+
+    html = render_template("pdf/expense_report.html", **data)
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+        HTML(string=html).write_pdf(tmp_pdf.name)
+
+        with open(tmp_pdf.name, "rb") as f:
+            pdf_bytes = f.read()
+
+    response = make_response(pdf_bytes)
+    response.headers["Content-Type"] = "application/pdf"
+    response.headers["Content-Disposition"] = "attachment; filename=expense_report.pdf"
+    return response
 
 FENCED_JSON = re.compile(r"```json\s*([\s\S]*?)```", re.IGNORECASE)
 
