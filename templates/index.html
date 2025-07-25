@@ -322,17 +322,17 @@
                         <div
                             class="mt-3 space-y-1 max-h-32 sm:max-h-none overflow-y-auto"
                         >
-                            {% for e in recent_expenses %}
+                            {% for name, total in category_expenses %}
                             <div
                                 class="flex justify-between items-center p-2 bg-gray-50 rounded text-xs"
                             >
                                 <span class="text-gray-700 font-medium truncate mr-2">
-                                    {{ e.category.name if e.category else "Uncategorized" }}
+                                    {{name if name else "Uncategorized" }}
                                 </span>
 
                                 <span
                                     class="text-gray-900 font-semibold flex-shrink-0"
-                                    >${{ "%.2f"|format(e.amount) }}</span
+                                    >${{ "%.2f"|format(total) }}</span
                                 >
                             </div>
                             {% else %}

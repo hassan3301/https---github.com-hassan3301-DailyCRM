@@ -1,23 +1,18 @@
-from flask import Flask, render_template, request, redirect, session, make_response, url_for, jsonify
-from flask_login import login_required, current_user, LoginManager, UserMixin, login_user, logout_user
-from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import func, extract
+from flask import Flask, render_template, request, redirect, session, url_for, jsonify
+from flask_login import login_required, current_user, LoginManager, login_user, logout_user
+from sqlalchemy import func
 from authlib.integrations.flask_client import OAuth
 from datetime import timedelta, datetime
-from weasyprint import HTML
 from collections import defaultdict
-import asyncio
-from google.genai import types
-import uuid, json, re, os
+import re, os
 import vertexai
 from vertexai import agent_engines
 from dotenv import load_dotenv
 import markdown
-import tempfile
 from flask_migrate import Migrate
 
 # Local import
-from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem, Report
+from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem, Report, ExpenseCategory
 
 load_dotenv()
 # Flask setup
@@ -54,59 +49,9 @@ vertexai.init(
 #print(os.getenv("VERTEX_AGENT_ID"))
 AGENT = agent_engines.get(os.getenv("VERTEX_AGENT_ID"))
 
-
-
-
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
-
-
-def get_last_4_months():
-    today = datetime.today()
-    months = []
-    for i in range(3, -1, -1):  # last 4 months including current
-        month_date = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
-        month_date = month_date.replace(month=((today.month - i - 1) % 12) + 1)
-        if month_date.month > today.month:
-            month_date = month_date.replace(year=today.year - 1)
-        months.append((month_date.year, month_date.month))
-    return months
-
-
-def get_monthly_revenue(user_id):
-    now = datetime.now()
-
-    # Get the first day of the current month, then generate the previous 3
-    months = []
-    for i in range(3, -1, -1):
-        month = (now.replace(day=1) - timedelta(days=30 * i)).replace(day=1)
-        months.append(month)
-
-    # Create keys in format YYYY-MM
-    month_keys = [month.strftime('%Y-%m') for month in months]
-
-    # Get all revenue records for this user in the last 4 months
-    start_date = months[0]
-    revenues = (
-        Revenue.query
-        .join(Invoice)
-        .filter(Invoice.user_id == user_id)
-        .filter(Revenue.date >= start_date.date())
-        .all()
-    )
-
-    # Aggregate revenue by month
-    revenue_totals = defaultdict(float)
-    for rev in revenues:
-        key = rev.date.strftime('%Y-%m')
-        revenue_totals[key] += rev.amount
-
-    # Format labels and values for the chart
-    labels = [month.strftime('%B') for month in months]
-    values = [revenue_totals.get(key, 0) for key in month_keys]
-
-    return labels, values
 
 @app.route("/", methods=["GET"])
 @login_required
@@ -126,11 +71,12 @@ def index():
         .all()
     )
 
-    recent_expenses  = (
-        Expense.query
-        .filter_by(user_id=user_id)
-        .order_by(Expense.date.desc())
-        .limit(5)
+    category_expenses = (
+        db.session.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
+        .join(Expense)
+        .filter(Expense.user_id == user_id)
+        .group_by(ExpenseCategory.name)
+        .order_by(func.sum(Expense.amount).desc())
         .all()
     )
 
@@ -174,13 +120,9 @@ def index():
 
 
     # prepare chart data
-    category_totals = defaultdict(float)
-    for e in recent_expenses:
-        category_name = e.category.name if e.category else "Uncategorized"
-        category_totals[category_name] += e.amount
+    expense_labels = [name for name, _ in category_expenses]
+    expense_values = [total for _, total in category_expenses]
 
-    expense_labels = list(category_totals.keys())
-    expense_values = [category_totals[c] for c in expense_labels]
     
     now    = datetime.now()
     months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
@@ -214,7 +156,7 @@ def index():
         timedelta=timedelta,
         total_expenses=total_expenses,
         monthly_expenses=monthly_expenses,
-        recent_expenses=recent_expenses,
+        category_expenses=category_expenses,
         expense_labels=expense_labels,
         expense_values=expense_values,
         revenue_labels=revenue_labels,
@@ -223,36 +165,6 @@ def index():
     )
 
 
-@app.route("/invoice/<int:invoice_id>/download")
-def download_invoice(invoice_id):
-    invoice = Invoice.query.get_or_404(invoice_id)
-    contact = Contact.query.get(invoice.contact_id)
-
-    rendered_html = render_template("invoice_pdf.html", invoice=invoice, contact=contact)
-    pdf = HTML(string=rendered_html).write_pdf()
-
-    response = make_response(pdf)
-    response.headers['Content-Type'] = 'application/pdf'
-    response.headers['Content-Disposition'] = f'attachment; filename=invoice_{invoice.id}.pdf'
-    return response
-
-@app.route("/report/pdf/expenses", methods=["POST"])
-@login_required
-def generate_expense_pdf():
-    data = request.json  # expects full structured expense report JSON
-
-    html = render_template("pdf/expense_report.html", **data)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-        HTML(string=html).write_pdf(tmp_pdf.name)
-
-        with open(tmp_pdf.name, "rb") as f:
-            pdf_bytes = f.read()
-
-    response = make_response(pdf_bytes)
-    response.headers["Content-Type"] = "application/pdf"
-    response.headers["Content-Disposition"] = "attachment; filename=expense_report.pdf"
-    return response
 
 FENCED_JSON = re.compile(r"```json\s*([\s\S]*?)```", re.IGNORECASE)
 
