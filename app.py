@@ -10,6 +10,7 @@ from vertexai import agent_engines
 from dotenv import load_dotenv
 import markdown
 from flask_migrate import Migrate
+from calendar import monthrange
 
 # Local import
 from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem, Report, ExpenseCategory
@@ -58,6 +59,11 @@ def load_user(user_id):
 def index():
     # ─── 1) Load all dashboard data ──────────────────────────────────────────
     user_id = current_user.id
+
+    today = datetime.today()
+    start_of_month = today.replace(day=1)
+    last_day = monthrange(today.year, today.month)[1]
+    end_of_month = today.replace(day=last_day, hour=23, minute=59, second=59)
   
 
     contacts         = Contact.query.filter_by(user_id=user_id).all()
@@ -88,25 +94,30 @@ def index():
     )
 
     # ─── Monthly Revenue ─────────────────────────────
-    start_of_month = datetime.today().replace(day=1)
 
     monthly_revenue = (
         db.session.query(func.sum(Revenue.amount))
         .filter(
             Revenue.user_id == user_id,
-            Revenue.date >= start_of_month
+            Revenue.date >= start_of_month,
+            Revenue.date <= end_of_month
         )
         .scalar() or 0
     )
+
     total_expenses   = (
         db.session.query(func.sum(Expense.amount))
         .filter_by(user_id=user_id)
         .scalar() or 0
     )
+
     monthly_expenses = (
         db.session.query(func.sum(Expense.amount))
-        .filter_by(user_id=user_id)
-        .filter(Expense.date >= start_of_month)
+        .filter(
+            Expense.user_id == user_id,
+            Expense.date >= start_of_month,
+            Expense.date <= end_of_month
+        )
         .scalar() or 0
     )
 
