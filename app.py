@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 import markdown
 from flask_migrate import Migrate
 from calendar import monthrange
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Local import
 from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Product, InvoiceLineItem, Report, ExpenseCategory
@@ -19,7 +20,7 @@ from models import db, Contact, Invoice, Revenue, Interaction, Expense, User, Pr
 load_dotenv()
 # Flask setup
 app = Flask(__name__)
-app.secret_key = os.getenv("SECRET_KEY", "supersecret")
+app.secret_key = os.getenv("SECRET_KEY")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PREFERRED_URL_SCHEME'] = 'https'
@@ -27,6 +28,11 @@ db.init_app(app)
 migrate = Migrate(app, db)
 # OAuth & Login setup
 oauth = OAuth(app)
+
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+app.config["SESSION_COOKIE_SECURE"] = True  # ensures session cookie is sent over HTTPS
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+
 login_manager = LoginManager()
 login_manager.login_view = 'login_page'
 login_manager.init_app(app)
