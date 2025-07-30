@@ -22,6 +22,7 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "supersecret")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['PREFERRED_URL_SCHEME'] = 'https'
 db.init_app(app)
 migrate = Migrate(app, db)
 # OAuth & Login setup
@@ -150,12 +151,10 @@ def index():
         .all()
     )
 
-
     # prepare chart data
     expense_labels = [name for name, _ in category_expenses]
     expense_values = [total for _, total in category_expenses]
 
-    
     now    = datetime.now()
     months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
               for i in range(3, -1, -1)]
@@ -173,7 +172,6 @@ def index():
 
     start_of_week  = datetime.now() - timedelta(days=datetime.now().weekday())
 
- 
 
     # ─── 3) Render the dashboard ──────────────────────────────────────────────
     return render_template(
@@ -195,8 +193,6 @@ def index():
         revenue_values=revenue_values,
         reports=reports
     )
-
-
 
 FENCED_JSON = re.compile(r"```json\s*([\s\S]*?)```", re.IGNORECASE)
 
@@ -244,9 +240,6 @@ def chat():
     return jsonify(user=user_message, assistant=html_reply)
 
 
-
-
-
 @app.route("/login")
 def login_page():
     return render_template("login.html")
@@ -255,7 +248,6 @@ def login_page():
 def login_with_google():
     redirect_uri = url_for('auth_callback', _external=True)
     return google.authorize_redirect(redirect_uri)
-
 
 
 @app.route("/auth/callback")
@@ -298,10 +290,6 @@ def auth_callback():
     session["user_name"] = user.name
 
     return redirect(url_for("index"))
-
-
-
-
 
 
 @app.route("/logout", methods=["POST"])
