@@ -4,7 +4,8 @@ from sqlalchemy import func
 from authlib.integrations.flask_client import OAuth
 from datetime import timedelta, datetime
 from collections import defaultdict
-import re, os
+import re, os, json
+from google.oauth2 import service_account
 import vertexai
 from vertexai import agent_engines
 from dotenv import load_dotenv
@@ -47,10 +48,22 @@ google = oauth.register(
     client_kwargs={'scope': 'email profile'},
 )
 
+cred_json = os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+
+if cred_json:
+    # Convert the JSON string to a dict
+    cred_dict = json.loads(cred_json)
+    # Create credentials object
+    credentials = service_account.Credentials.from_service_account_info(cred_dict)
+else:
+    credentials = None
+
+
 vertexai.init(
     project=os.getenv("GOOGLE_CLOUD_PROJECT"),
     location=os.getenv("GOOGLE_CLOUD_REGION"),
-    staging_bucket=os.getenv("GOOGLE_CLOUD_BUCKET")
+    staging_bucket=os.getenv("GOOGLE_CLOUD_BUCKET"),
+    credentials=credentials
 )
 
 #print(os.getenv("VERTEX_AGENT_ID"))
