@@ -29,6 +29,12 @@ login_manager = LoginManager()
 login_manager.login_view = 'login_page'
 login_manager.init_app(app)
 
+
+print("Starting Flask app...")
+print(f"Loaded SECRET_KEY: {os.getenv('SECRET_KEY')}")
+print(f"Loaded DB URL: {os.getenv('DATABASE_URL')}")
+print(f"Loaded VERTEX_AGENT_ID: {os.getenv('VERTEX_AGENT_ID')}")
+
 # Google OAuth config
 google = oauth.register(
     name='google',
@@ -48,7 +54,9 @@ vertexai.init(
 )
 
 #print(os.getenv("VERTEX_AGENT_ID"))
+print("Initializing Vertex AI agent...")
 AGENT = agent_engines.get(os.getenv("VERTEX_AGENT_ID"))
+print("Vertex AI agent initialized.")
 
 @login_manager.user_loader
 def load_user(user_id):
