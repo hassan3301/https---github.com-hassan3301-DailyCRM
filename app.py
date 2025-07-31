@@ -200,6 +200,54 @@ def index():
         reports=reports
     )
 
+
+
+def fix_markdown_tables(markdown_text: str) -> str:
+    """
+    Detects malformed markdown tables and reformats them into valid GitHub-Flavored Markdown.
+    Ensures correct separator row and trims trailing pipes.
+    """
+    lines = markdown_text.split("\n")
+    fixed_lines = []
+    inside_table = False
+    table_rows = []
+
+    def flush_table():
+        nonlocal fixed_lines, table_rows
+        if not table_rows:
+            return
+
+        # Strip and split each row
+        cleaned = [re.split(r'\s*\|\s*', row.strip('| ')) for row in table_rows]
+        max_cols = max(len(row) for row in cleaned)
+        # Pad all rows to the same length
+        padded = [row + [''] * (max_cols - len(row)) for row in cleaned]
+
+        # Header and separator
+        fixed_lines.append("| " + " | ".join(padded[0]) + " |")
+        fixed_lines.append("| " + " | ".join(["---"] * max_cols) + " |")
+
+        for row in padded[1:]:
+            fixed_lines.append("| " + " | ".join(row) + " |")
+
+        table_rows = []
+
+    for line in lines:
+        if re.match(r'^\s*\|.*\|\s*$', line):
+            inside_table = True
+            table_rows.append(line)
+        else:
+            if inside_table:
+                flush_table()
+                inside_table = False
+            fixed_lines.append(line)
+
+    if inside_table:
+        flush_table()
+
+    return "\n".join(fixed_lines)
+
+
 FENCED_JSON = re.compile(r"```json\s*([\s\S]*?)```", re.IGNORECASE)
 
 @app.route("/chat", methods=["POST"])
@@ -242,6 +290,7 @@ def chat():
                         text_parts.append(str(response_data))
 
     assistant_reply = " ".join(text_parts).strip() or "❌ No response."
+    assistant_reply = fix_markdown_tables(assistant_reply)
     html_reply = markdown.markdown(assistant_reply)
     return jsonify(user=user_message, assistant=html_reply)
 
