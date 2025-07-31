@@ -218,7 +218,11 @@ def fix_markdown_tables(markdown_text: str) -> str:
             return
 
         # Strip and split each row
-        cleaned = [re.split(r'\s*\|\s*', row.strip('| ')) for row in table_rows]
+        cleaned = [
+            re.split(r'\s*\|\s*', row.strip('| '))
+            for row in table_rows
+            if row.strip().count('|') >= 2  # Skip rows with not enough columns
+        ]
         max_cols = max(len(row) for row in cleaned)
         # Pad all rows to the same length
         padded = [row + [''] * (max_cols - len(row)) for row in cleaned]
@@ -291,7 +295,7 @@ def chat():
 
     assistant_reply = " ".join(text_parts).strip() or "❌ No response."
     assistant_reply = fix_markdown_tables(assistant_reply)
-    html_reply = markdown.markdown(assistant_reply)
+    html_reply = markdown.markdown(assistant_reply, extensions=['tables'])
     return jsonify(user=user_message, assistant=html_reply)
 
 
