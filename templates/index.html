@@ -49,12 +49,6 @@
               <p class="text-xs text-gray-500">Welcome,</p>
               <p class="text-sm font-semibold text-gray-900">{{ session.get("user_name", "User") }}</p>
             </div>
-            <form action="{{ url_for('logout') }}" method="post">
-              <button type="submit"
-                class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors font-medium">
-                Logout
-              </button>
-            </form>
           </div>
         </div>
       </div>
