@@ -82,123 +82,129 @@ print("Vertex AI agent initialized.")
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# @app.route("/", methods=["GET"])
+# @login_required
+# def index():
+#     # ─── 1) Load all dashboard data ──────────────────────────────────────────
+#     user_id = current_user.id
+
+#     today = datetime.today()
+#     start_of_month = today.replace(day=1)
+#     last_day = monthrange(today.year, today.month)[1]
+#     end_of_month = today.replace(day=last_day, hour=23, minute=59, second=59)
+  
+
+#     contacts         = Contact.query.filter_by(user_id=user_id).all()
+#     invoices         = Invoice.query.filter_by(user_id=user_id).all()
+#     products         = Product.query.filter_by(user_id=user_id).all()
+#     interactions     = (
+#         Interaction.query
+#         .filter_by(user_id=user_id)
+#         .order_by(Interaction.date.desc())
+#         .limit(10)
+#         .all()
+#     )
+
+#     category_expenses = (
+#         db.session.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
+#         .join(Expense)
+#         .filter(Expense.user_id == user_id)
+#         .group_by(ExpenseCategory.name)
+#         .order_by(func.sum(Expense.amount).desc())
+#         .all()
+#     )
+
+# # ─── Total Revenue ───────────────────────────────
+#     total_revenue = (
+#         db.session.query(func.sum(Revenue.amount))
+#         .filter(Revenue.user_id == user_id)   # ✅ direct filter
+#         .scalar() or 0
+#     )
+
+#     # ─── Monthly Revenue ─────────────────────────────
+
+#     monthly_revenue = (
+#         db.session.query(func.sum(Revenue.amount))
+#         .filter(
+#             Revenue.user_id == user_id,
+#             Revenue.date >= start_of_month,
+#             Revenue.date <= end_of_month
+#         )
+#         .scalar() or 0
+#     )
+
+#     total_expenses   = (
+#         db.session.query(func.sum(Expense.amount))
+#         .filter_by(user_id=user_id)
+#         .scalar() or 0
+#     )
+
+#     monthly_expenses = (
+#         db.session.query(func.sum(Expense.amount))
+#         .filter(
+#             Expense.user_id == user_id,
+#             Expense.date >= start_of_month,
+#             Expense.date <= end_of_month
+#         )
+#         .scalar() or 0
+#     )
+
+#     reports = (
+#          Report.query
+#         .filter_by(user_id=user_id)
+#         .order_by(Report.created_at.desc())
+#         .limit(20)  # or more, or all
+#         .all()
+#     )
+
+#     # prepare chart data
+#     expense_labels = [name for name, _ in category_expenses]
+#     expense_values = [total for _, total in category_expenses]
+
+#     now    = datetime.now()
+#     months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
+#               for i in range(3, -1, -1)]
+#     month_keys     = [m.strftime("%Y-%m") for m in months]
+#     revenues       = (
+#         Revenue.query.join(Invoice)
+#         .filter(Invoice.user_id == user_id, Revenue.date >= months[0])
+#         .all()
+#     )
+#     revenue_totals = defaultdict(float)
+#     for rev in revenues:
+#         revenue_totals[rev.date.strftime("%Y-%m")] += rev.amount
+#     revenue_labels = [m.strftime("%B") for m in months]
+#     revenue_values = [revenue_totals.get(k, 0) for k in month_keys]
+
+#     start_of_week  = datetime.now() - timedelta(days=datetime.now().weekday())
+
+
+#     # ─── 3) Render the dashboard ──────────────────────────────────────────────
+#     return render_template(
+#         "index.html",
+#         contacts=contacts,
+#         invoices=invoices,
+#         total_revenue=total_revenue,
+#         monthly_revenue=monthly_revenue,
+#         interactions=interactions,
+#         products=products,
+#         start=start_of_week,
+#         timedelta=timedelta,
+#         total_expenses=total_expenses,
+#         monthly_expenses=monthly_expenses,
+#         category_expenses=category_expenses,
+#         expense_labels=expense_labels,
+#         expense_values=expense_values,
+#         revenue_labels=revenue_labels,
+#         revenue_values=revenue_values,
+#         reports=reports
+#     )
+
 @app.route("/", methods=["GET"])
 @login_required
 def index():
-    # ─── 1) Load all dashboard data ──────────────────────────────────────────
-    user_id = current_user.id
-
-    today = datetime.today()
-    start_of_month = today.replace(day=1)
-    last_day = monthrange(today.year, today.month)[1]
-    end_of_month = today.replace(day=last_day, hour=23, minute=59, second=59)
-  
-
-    contacts         = Contact.query.filter_by(user_id=user_id).all()
-    invoices         = Invoice.query.filter_by(user_id=user_id).all()
-    products         = Product.query.filter_by(user_id=user_id).all()
-    interactions     = (
-        Interaction.query
-        .filter_by(user_id=user_id)
-        .order_by(Interaction.date.desc())
-        .limit(10)
-        .all()
-    )
-
-    category_expenses = (
-        db.session.query(ExpenseCategory.name, func.sum(Expense.amount).label("total"))
-        .join(Expense)
-        .filter(Expense.user_id == user_id)
-        .group_by(ExpenseCategory.name)
-        .order_by(func.sum(Expense.amount).desc())
-        .all()
-    )
-
-# ─── Total Revenue ───────────────────────────────
-    total_revenue = (
-        db.session.query(func.sum(Revenue.amount))
-        .filter(Revenue.user_id == user_id)   # ✅ direct filter
-        .scalar() or 0
-    )
-
-    # ─── Monthly Revenue ─────────────────────────────
-
-    monthly_revenue = (
-        db.session.query(func.sum(Revenue.amount))
-        .filter(
-            Revenue.user_id == user_id,
-            Revenue.date >= start_of_month,
-            Revenue.date <= end_of_month
-        )
-        .scalar() or 0
-    )
-
-    total_expenses   = (
-        db.session.query(func.sum(Expense.amount))
-        .filter_by(user_id=user_id)
-        .scalar() or 0
-    )
-
-    monthly_expenses = (
-        db.session.query(func.sum(Expense.amount))
-        .filter(
-            Expense.user_id == user_id,
-            Expense.date >= start_of_month,
-            Expense.date <= end_of_month
-        )
-        .scalar() or 0
-    )
-
-    reports = (
-         Report.query
-        .filter_by(user_id=user_id)
-        .order_by(Report.created_at.desc())
-        .limit(20)  # or more, or all
-        .all()
-    )
-
-    # prepare chart data
-    expense_labels = [name for name, _ in category_expenses]
-    expense_values = [total for _, total in category_expenses]
-
-    now    = datetime.now()
-    months = [(now.replace(day=1) - timedelta(days=30*i)).replace(day=1)
-              for i in range(3, -1, -1)]
-    month_keys     = [m.strftime("%Y-%m") for m in months]
-    revenues       = (
-        Revenue.query.join(Invoice)
-        .filter(Invoice.user_id == user_id, Revenue.date >= months[0])
-        .all()
-    )
-    revenue_totals = defaultdict(float)
-    for rev in revenues:
-        revenue_totals[rev.date.strftime("%Y-%m")] += rev.amount
-    revenue_labels = [m.strftime("%B") for m in months]
-    revenue_values = [revenue_totals.get(k, 0) for k in month_keys]
-
-    start_of_week  = datetime.now() - timedelta(days=datetime.now().weekday())
-
-
-    # ─── 3) Render the dashboard ──────────────────────────────────────────────
-    return render_template(
-        "index.html",
-        contacts=contacts,
-        invoices=invoices,
-        total_revenue=total_revenue,
-        monthly_revenue=monthly_revenue,
-        interactions=interactions,
-        products=products,
-        start=start_of_week,
-        timedelta=timedelta,
-        total_expenses=total_expenses,
-        monthly_expenses=monthly_expenses,
-        category_expenses=category_expenses,
-        expense_labels=expense_labels,
-        expense_values=expense_values,
-        revenue_labels=revenue_labels,
-        revenue_values=revenue_values,
-        reports=reports
-    )
+    # Render a lightweight chat-only page (no dashboard data)
+    return render_template("index.html")
 
 
 

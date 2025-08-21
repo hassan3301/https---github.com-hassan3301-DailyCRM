@@ -1,1026 +1,166 @@
 <!DOCTYPE html>
 <html lang="en">
-    <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>Daily CRM Dashboard</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
-        <link
-            href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap"
-            rel="stylesheet"
-        />
-        <script>
-            tailwind.config = {
-                theme: {
-                    extend: {
-                        colors: {
-                            yellow: {
-                                400: "#FFD700",
-                                500: "#FFC107",
-                                600: "#FF8F00",
-                            },
-                        },
-                        fontFamily: {
-                            inter: ["Inter", "sans-serif"],
-                        },
-                    },
-                },
-                plugins: [tailwindcss.typography],
-            };
-        </script>
-        <style>
-            body {
-                font-family: "Inter", sans-serif;
-            }
-            .enterprise-shadow {
-                box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
-            }
-            .enterprise-shadow-lg {
-                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-            }
-            .modal-shadow {
-                box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-            }
-            .draggable {
-                cursor: move;
-            }
-            .dragging {
-                z-index: 1000;
-            }
-            @media (max-width: 768px) {
-                .mobile-hide {
-                    display: none;
-                }
-            }
-            .chat-transition {
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            }
-            .chat-message {
-                animation: slideInUp 0.3s ease-out;
-            }
-            @keyframes slideInUp {
-                from {
-                    opacity: 0;
-                    transform: translateY(20px);
-                }
-                to {
-                    opacity: 1;
-                    transform: translateY(0);
-                }
-            }
-            .modal-enter {
-                animation: modalFadeIn 0.3s ease-out;
-            }
-            @keyframes modalFadeIn {
-                from {
-                    opacity: 0;
-                    transform: scale(0.95);
-                }
-                to {
-                    opacity: 1;
-                    transform: scale(1);
-                }
-            }
-            .chat-input-focus {
-                box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.1);
-            }
-            .touch-manipulation {
-                touch-action: manipulation;
-            }
-            @media (max-width: 640px) {
-                .modal-enter {
-                    animation: modalSlideUp 0.3s ease-out;
-                }
-                @keyframes modalSlideUp {
-                    from {
-                        opacity: 0;
-                        transform: translateY(100%);
-                    }
-                    to {
-                        opacity: 1;
-                        transform: translateY(0);
-                    }
-                }
-            }
-            /* Restore bullets & indentation for lists inside .prose */
-            .prose ul {
-            list-style-type: disc;
-            padding-left: 1.5rem;
-            }
-
-            .prose ol {
-            list-style-type: decimal;
-            padding-left: 1.5rem;
-            }
-
-            .prose li {
-            margin-top: 0.5rem;
-            margin-bottom: 0.5rem;
-            }
-
-        </style>
-    </head>
-    <body class="bg-gray-50 min-h-screen font-inter text-sm">
-        <!-- Header Section -->
-        <header
-            class="bg-white border-b border-gray-200 sticky top-0 z-40 enterprise-shadow"
-        >
-            <div class="px-3 sm:px-6 py-3">
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center space-x-2 sm:space-x-4">
-                        <img
-                            src="{{ url_for('static', filename='Daily Logo.png') }}"
-                            alt="Logo"
-                            class="h-10 sm:h-12 w-auto"
-                        />
-                    </div>
-
-                    <div class="flex items-center space-x-2 sm:space-x-4">
-                        <div class="text-right hidden sm:block">
-                            <p class="text-xs text-gray-500">Welcome back,</p>
-                            <p class="text-sm font-semibold text-gray-900">
-                                {{ session.get("user_name", "User") }}
-                            </p>
-                        </div>
-
-                        <form action="{{ url_for('logout') }}" method="post">
-                            <button
-                                type="submit"
-                                class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors duration-200 enterprise-shadow font-medium"
-                            >
-                                <span class="hidden sm:inline">Logout</span>
-                                <span class="sm:hidden">Logout</span>
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </header>
-
-        <div class="px-3 sm:px-6 py-4 pb-32 space-y-4 sm:space-y-6">
-            <!-- KPI Row -->
-            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-                <!-- Revenue KPI -->
-                <div
-                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                >
-                    <div class="flex items-center justify-between">
-                        <div class="min-w-0 flex-1">
-                            <p class="text-xs text-gray-500 font-medium mb-1">
-                                Total Revenue
-                            </p>
-                            <p
-                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
-                            >
-                                ${{ '%.2f' | format(total_revenue) }}
-                            </p>
-                            <p class="text-xs text-gray-600 truncate">
-                                ${{ '%.2f' | format(monthly_revenue) }} this
-                                month
-                            </p>
-                        </div>
-
-                    </div>
-                </div>
-
-                <!-- Customers KPI -->
-                <div
-                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                >
-                    <div class="flex items-center justify-between">
-                        <div class="min-w-0 flex-1">
-                            <p class="text-xs text-gray-500 font-medium mb-1">
-                                Customers
-                            </p>
-                            <p
-                                class="text-xl sm:text-2xl font-bold text-gray-900"
-                            >
-                                {{ contacts|length if contacts else 0 }}
-                            </p>
-                            <p class="text-xs text-gray-600 truncate">
-                                {{ contacts|length if contacts else 0 }} total
-                            </p>
-                        </div>
-
-                    </div>
-                </div>
-
-                <!-- Expenses KPI -->
-                <div
-                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                >
-                    <div class="flex items-center justify-between">
-                        <div class="min-w-0 flex-1">
-                            <p class="text-xs text-gray-500 font-medium mb-1">
-                                Expenses
-                            </p>
-                            <p
-                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
-                            >
-                                ${{ "%.2f"|format(total_expenses) }}
-                            </p>
-                            <p class="text-xs text-gray-600 truncate">
-                                ${{ "%.2f"|format(monthly_expenses) }} this
-                                month
-                            </p>
-                        </div>
-
-                    </div>
-                </div>
-
-                <!-- Profit KPI -->
-                <div
-                    class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                >
-                    <div class="flex items-center justify-between">
-                        <div class="min-w-0 flex-1">
-                            <p class="text-xs text-gray-500 font-medium mb-1">
-                                Net Profit
-                            </p>
-                            <p
-                                class="text-xl sm:text-2xl font-bold text-gray-900 truncate"
-                            >
-                                ${{ '%.2f' | format((total_revenue) -
-                                (total_expenses)) }}
-                            </p>
-                            <p class="text-xs text-gray-600 truncate">
-                                {{ '%.1f' | format(((total_revenue) -
-                                (total_expenses)) / (total_revenue) * 100 if
-                                total_revenue else 0) }}% margin
-                            </p>
-                        </div>
-
-                    </div>
-                </div>
-            </div>
-
-            <!-- Main Content Row -->
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
-                <!-- Left Column - Revenue & Expenses -->
-                <div class="space-y-4">
-                    <!-- Revenue Chart -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center space-x-2 mb-3">
-
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900">
-                                    Revenue Trend
-                                </h3>
-                                <p
-                                    class="text-xs text-gray-500 hidden sm:block"
-                                >
-                                    Monthly performance
-                                </p>
-                            </div>
-                        </div>
-                        <div class="h-24 sm:h-32">
-                            <canvas id="revenueChart"></canvas>
-                        </div>
-                        <div class="mt-3 grid grid-cols-2 gap-2 sm:gap-3">
-                            <div class="text-center p-2 bg-gray-50 rounded">
-                                <p class="text-xs text-gray-600 font-medium">
-                                    This Month
-                                </p>
-                                <p class="text-sm font-bold text-gray-900">
-                                    ${{ '%.2f' | format(monthly_revenue) }}
-                                </p>
-                            </div>
-                            <div class="text-center p-2 bg-gray-100 rounded">
-                                <p class="text-xs text-gray-600 font-medium">
-                                    Total
-                                </p>
-                                <p class="text-sm font-bold text-gray-900">
-                                    ${{ '%.2f' | format(total_revenue) }}
-                                </p>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Expenses Breakdown -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center space-x-2 mb-3">
-
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900">
-                                    Expense Analysis
-                                </h3>
-                                <p
-                                    class="text-xs text-gray-500 hidden sm:block"
-                                >
-                                    Cost breakdown
-                                </p>
-                            </div>
-                        </div>
-                        <div class="h-24 sm:h-32">
-                            <canvas id="expenseChart"></canvas>
-                        </div>
-                        <div
-                            class="mt-3 space-y-1 max-h-32 sm:max-h-none overflow-y-auto"
-                        >
-                            {% for name, total in category_expenses %}
-                            <div
-                                class="flex justify-between items-center p-2 bg-gray-50 rounded text-xs"
-                            >
-                                <span class="text-gray-700 font-medium truncate mr-2">
-                                    {{name if name else "Uncategorized" }}
-                                </span>
-
-                                <span
-                                    class="text-gray-900 font-semibold flex-shrink-0"
-                                    >${{ "%.2f"|format(total) }}</span
-                                >
-                            </div>
-                            {% else %}
-                            <p class="text-gray-500 text-center py-3 text-xs">
-                                No expenses recorded.
-                            </p>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Middle Column - Customers & Invoices -->
-                <div class="space-y-4">
-                    <!-- Customers List -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="flex items-center space-x-2">
-
-                                <div>
-                                    <h3
-                                        class="text-sm font-semibold text-gray-900"
-                                    >
-                                        Customers
-                                    </h3>
-                                    <p class="text-xs text-gray-500">
-                                        {{ contacts|length if contacts else 0 }}
-                                        active
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div
-                            class="space-y-2 max-h-32 sm:max-h-48 overflow-y-auto"
-                        >
-                            {% for c in contacts %}
-                            <div
-                                class="flex items-center space-x-2 sm:space-x-3 p-2 bg-gray-50 rounded border border-gray-100"
-                            >
-                                <div
-                                    class="w-6 h-6 sm:w-8 sm:h-8 bg-gray-700 rounded flex items-center justify-center flex-shrink-0"
-                                >
-                                    <span
-                                        class="text-white font-semibold text-xs"
-                                        >{% if c.name %}{{ c.name[0].upper() }}{% else %}?{% endif %}</span>
-                                    
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <p
-                                        class="text-sm font-medium text-gray-900 truncate"
-                                    >
-                                        {{ c.name }}
-                                    </p>
-                                    <p class="text-xs text-gray-500 truncate">
-                                        {{ c.email }}
-                                    </p>
-                                </div>
-                            </div>
-                            {% else %}
-                            <div class="text-center py-4 sm:py-8">
-                                <div
-                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
-                                >
-
-                                </div>
-                                <p class="text-gray-500 text-xs">
-                                    No customers yet.
-                                </p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- Invoices Overview -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center justify-between mb-3">
-                            <div class="flex items-center space-x-2">
-
-                                <div>
-                                    <h3
-                                        class="text-sm font-semibold text-gray-900"
-                                    >
-                                        Invoices
-                                    </h3>
-                                    <p class="text-xs text-gray-500">
-                                        {{ invoices|length if invoices else 0 }}
-                                        active
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                        <div
-                            class="space-y-2 max-h-32 sm:max-h-48 overflow-y-auto"
-                        >
-                            {% for i in invoices %}
-                            <div
-                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
-                            >
-                                <div
-                                    class="flex justify-between items-start mb-1"
-                                >
-                                    <div class="min-w-0 flex-1">
-                                        <p
-                                            class="text-sm font-semibold text-gray-900 truncate"
-                                        >
-                                            Invoice #{{ i.id }}
-                                        </p>
-                                        <p
-                                            class="text-xs text-gray-600 truncate"
-                                        >
-                                            {{ i.contact.name }}
-                                        </p>
-                                    </div>
-                                    <span
-                                        class="px-2 py-1 text-xs font-semibold rounded ml-2 flex-shrink-0 {% if i.status == 'paid' %}bg-green-100 text-green-800{% elif i.status == 'pending' %}bg-yellow-100 text-yellow-800{% else %}bg-red-100 text-red-800{% endif %}"
-                                    >
-                                        {{ i.status }}
-                                    </span>
-                                </div>
-                                <div class="flex justify-between items-center">
-                                    <p class="text-sm font-bold text-gray-900">
-                                        ${{ i.total_amount }}
-                                    </p>
-                                    <p class="text-xs text-gray-500">
-                                        Due {{ i.due_date }}
-                                    </p>
-                                </div>
-                            </div>
-                            {% else %}
-                            <div class="text-center py-4 sm:py-8">
-                                <div
-                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
-                                >
-                                    
-                                </div>
-                                <p class="text-gray-500 text-xs">
-                                    No invoices yet.
-                                </p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right Column - Activity & Events -->
-                <div class="space-y-4">
-                    <!-- Recent Interactions -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center space-x-2 mb-3">
-
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900">
-                                    Activity
-                                </h3>
-                                <p
-                                    class="text-xs text-gray-500 hidden sm:block"
-                                >
-                                    Latest interactions
-                                </p>
-                            </div>
-                        </div>
-                        <div
-                            class="space-y-2 max-h-32 sm:max-h-52 overflow-y-auto"
-                        >
-                            {% for i in interactions %}
-                            <div
-                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
-                            >
-                                <div
-                                    class="flex justify-between items-start mb-1"
-                                >
-                                    <p
-                                        class="text-sm font-semibold text-gray-900 truncate flex-1"
-                                    >
-                                        {{ i.contact.name }}
-                                    </p>
-                                    <p
-                                        class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded ml-2 flex-shrink-0"
-                                    >
-                                        {{ i.date }}
-                                    </p>
-                                </div>
-                                <div class="mb-1">
-                                    <span
-                                        class="px-2 py-1 text-xs font-semibold bg-yellow-100 text-yellow-800 rounded"
-                                        >{{ i.type }}</span
-                                    >
-                                </div>
-                                <p class="text-xs text-gray-600 line-clamp-2">
-                                    {{ i.summary }}
-                                </p>
-                            </div>
-                            {% else %}
-                            <div class="text-center py-4 sm:py-8">
-                                <div
-                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
-                                >
-                                    
-                                </div>
-                                <p class="text-gray-500 text-xs">
-                                    No interactions yet.
-                                </p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- Products / Services -->
-                    <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center space-x-2 mb-3">
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900">
-                                    Products & Services
-                                </h3>
-                                <p class="text-xs text-gray-500 hidden sm:block">
-                                    Your available offerings
-                                </p>
-                            </div>
-                        </div>
-                        <div class="space-y-2 max-h-32 sm:max-h-52 overflow-y-auto">
-                            {% for p in products %}
-                            <div
-                                class="p-2 sm:p-3 bg-gray-50 rounded border border-gray-100"
-                            >
-                                <div class="flex justify-between items-start mb-1">
-                                    <p
-                                        class="text-sm font-semibold text-gray-900 truncate flex-1"
-                                    >
-                                        {{ p.name }}
-                                    </p>
-                                    <p
-                                        class="text-xs text-gray-500 bg-gray-200 px-2 py-1 rounded ml-2 flex-shrink-0"
-                                    >
-                                        ${{ "%.2f"|format(p.price) }}
-                                    </p>
-                                </div>
-                                <p class="text-xs text-gray-600 line-clamp-2">
-                                    {{ p.description or "No description provided." }}
-                                </p>
-                            </div>
-                            {% else %}
-                            <div class="text-center py-4 sm:py-8">
-                                <div
-                                    class="w-8 h-8 sm:w-12 sm:h-12 bg-gray-200 rounded flex items-center justify-center mx-auto mb-2"
-                                >
-                                    <!-- Optional icon -->
-                                </div>
-                                <p class="text-gray-500 text-xs">
-                                    No products added yet.
-                                </p>
-                            </div>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                     <div
-                        class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 enterprise-shadow"
-                    >
-                        <div class="flex items-center space-x-2 mb-3">
-                            <div>
-                                <h3 class="text-sm font-semibold text-gray-900">
-                                    Recent Reports
-                                </h3>
-                            </div>
-                        </div>
-                        <div class="card-body">
-                            {% if reports %}
-                            <ul class="list-unstyled mb-0" style="max-height: 180px; overflow-y: auto;">
-                                {% for report in reports %}
-                                <li class="d-flex justify-content-between align-items-start mb-2">
-                                    <div class="pe-2">
-                                    <div class="fw-semibold">{{ report.title }}</div>
-                                    <small class="text-muted">
-                                        {{ report.created_at.strftime("%b %d, %Y") }} — {{ report.report_type | capitalize }}
-                                    </small>
-                                    </div>
-                                    <a class="btn btn-sm btn-outline-primary" href="{{ report.file_path }}" target="_blank">
-                                    Download
-                                    </a>
-                                </li>
-                                {% endfor %}
-                            </ul>
-                            {% else %}
-                            <p class="text-muted mb-0">No reports available yet.</p>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Fixed Bottom Chat Input -->
-        <div
-            id="chatInputBar"
-            class="fixed bottom-0 left-0 right-0 z-50 chat-transition"
-        >
-            <div class="bg-white border-t border-gray-200 px-4 py-3 shadow-lg">
-                <div class="max-w-7xl mx-auto">
-                    <div class="flex items-center space-x-3">
-                        <!-- AI Avatar -->
-
-
-                        <!-- Chat Input -->
-                        <div class="flex-1 relative">
-                            <form id="chatForm">
-                                <input
-                                    type="text"
-                                    name="message"
-                                    autocomplete="off"
-                                    id="messageInput"
-                                    placeholder="Ask your AI assistant anything about your business..."
-                                    class="w-full p-3 pr-12 border border-gray-300 rounded-full text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-all duration-200 bg-gray-50 focus:bg-white"
-                                />
-                                <button
-                                    type="submit"
-                                    id="sendMessageBtn"
-                                    class="absolute right-2 top-1/2 transform -translate-y-1/2 w-8 h-8 bg-yellow-500 text-white rounded-full hover:bg-yellow-600 transition-colors flex items-center justify-center"
-                                >
-                                    <span class="text-sm">→</span>
-                                </button>
-                            </form>
-                        </div>
-
-                        <!-- Chat History Button -->
-                        <button
-                            id="openChatHistoryBtn"
-                            class="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-full transition-colors text-sm font-medium flex items-center space-x-2"
-                        >
-                            <span>💬</span>
-                            <span class="hidden sm:inline"></span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Chat History Modal -->
-        <div id="chatModal" class="fixed inset-0 z-[100] hidden">
-            <!-- Backdrop -->
-            <div
-                class="absolute inset-0 bg-black bg-opacity-50 transition-opacity"
-            ></div>
-
-            <!-- Modal Content -->
-            <div
-                class="flex flex-col w-full h-full p-2 sm:p-4"
-            >
-                <div
-                    class="relative bg-white w-full h-full flex flex-col"
-                >
-                    <!-- Modal Header -->
-                    <div
-                        id="chatModalHeader"
-                        class="bg-gray-900 text-white p-3 sm:p-4 flex-shrink-0"
-                    >
-                        <div class="flex items-center justify-between">
-                            <div
-                                class="flex items-center space-x-2 sm:space-x-3"
-                            >
-                                <div>
-                                    <h2
-                                        class="text-base sm:text-lg font-semibold"
-                                    >
-                                        Daily Assistant Chat
-                                    </h2>
-                                    <p
-                                        class="text-xs sm:text-sm text-gray-300 hidden sm:block"
-                                    >
-                                        Complete conversation history
-                                    </p>
-                                </div>
-                            </div>
-                            <div class="flex space-x-1 sm:space-x-2">
-                                <button
-                                    id="minimizeChatBtn"
-                                    class="w-8 h-8 sm:w-8 sm:h-8 bg-gray-700 hover:bg-gray-600 rounded flex items-center justify-center transition-colors touch-manipulation"
-                                >
-                                    <span class="text-white text-sm">−</span>
-                                </button>
-                                <button
-                                    id="closeChatBtn"
-                                    class="w-8 h-8 sm:w-8 sm:h-8 bg-red-600 hover:bg-red-500 rounded flex items-center justify-center transition-colors touch-manipulation"
-                                >
-                                    <span class="text-white text-sm">×</span>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Chat Messages Area -->
-                    <div
-                        id="chatMessagesArea"
-                        class="flex-1 p-3 sm:p-6 overflow-y-auto"
-                    >
-                        <div class="space-y-3 sm:space-y-4" id="chatMessages">
-                            <!-- empty on initial load -->
-                        </div>
-                    </div>
-
-                    <!-- Modal Chat Input -->
-                    <div
-                        class="border-t border-gray-200 p-3 sm:p-4 flex-shrink-0"
-                    >
-                        <form id="modalChatForm">
-                            <div class="flex space-x-2 sm:space-x-3">
-                                <input
-                                    type="text"
-                                    name="message"
-                                    autocomplete="off"
-                                    id="modalChatInput"
-                                    placeholder="Type your message here..."
-                                    class="flex-1 p-3 sm:p-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 transition-colors"
-                                />
-                                <button
-                                    type="submit"
-                                    id="modalSendBtn"
-                                    class="px-4 sm:px-6 py-3 bg-yellow-500 text-white rounded-lg hover:bg-yellow-600 transition-colors font-medium text-sm touch-manipulation"
-                                >
-                                    Send
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-
-        <script id="dashboard-data" type="application/json">
-            {
-                "expense": {
-                    "labels": {{ expense_labels | tojson | safe }},
-                    "values": {{ expense_values | tojson | safe }}
-                },
-                "revenue": {
-                    "labels": {{ revenue_labels | tojson | safe }},
-                    "values": {{ revenue_values | tojson | safe }}
-                }
-            }
-        </script>
-
-        <script>
-        window.addEventListener("load", function () {
-        try {
-            //
-            // ── Dashboard Charts ─────────────────────────────────────────────────────────
-            //
-            const dataScript = document.getElementById("dashboard-data");
-            const dashboardData = JSON.parse(dataScript.textContent);
-
-            // Revenue Chart
-            const revenueCtx = document.getElementById("revenueChart");
-            if (revenueCtx && typeof Chart !== "undefined") {
-            new Chart(revenueCtx, {
-                type: "bar",
-                data: {
-                labels: dashboardData.revenue.labels.length
-                    ? dashboardData.revenue.labels
-                    : ["No data"],
-                datasets: [{
-                    label: "Monthly Revenue",
-                    data: dashboardData.revenue.values.length
-                    ? dashboardData.revenue.values
-                    : [0],
-                    backgroundColor: "#FFC107",
-                    borderColor: "#FFA000",
-                    borderWidth: 1,
-                    borderRadius: 4,
-                }],
-                },
-                options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                    callbacks: {
-                        label(ctx) { return `$${ctx.raw.toLocaleString()}`; }
-                    }
-                    }
-                },
-                scales: {
-                    x: { grid: { display: false } },
-                    y: {
-                    grid: { color: "rgba(107,114,128,0.1)" },
-                    ticks: {
-                        callback(v) { return `$${v}`; }
-                    }
-                    }
-                }
-                }
-            });
-            }
-
-            // Expense Chart
-            const expenseCtx = document.getElementById("expenseChart");
-            if (expenseCtx && typeof Chart !== "undefined") {
-            new Chart(expenseCtx, {
-                type: "doughnut",
-                data: {
-                labels: dashboardData.expense.labels.length
-                    ? dashboardData.expense.labels
-                    : ["No data"],
-                datasets: [{
-                    data: dashboardData.expense.values.length
-                    ? dashboardData.expense.values
-                    : [1],
-                    backgroundColor: [
-                    "#f87171","#60a5fa","#34d399","#fbbf24","#a78bfa","#fb7185"
-                    ],
-                    borderWidth: 2,
-                    borderColor: "#ffffff",
-                }],
-                },
-                options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false },
-                    tooltip: {
-                    callbacks: {
-                        label(ctx) {
-                        return `${ctx.label}: $${ctx.raw.toFixed(2)}`;
-                        }
-                    }
-                    }
-                },
-                cutout: "60%"
-                }
-            });
-            }
-
-            //
-            // ── Chat Modal & Forms ────────────────────────────────────────────────────────
-            //
-            const chatForm        = document.getElementById("chatForm");
-            const messageInput    = document.getElementById("messageInput");
-            const openBtn         = document.getElementById("openChatHistoryBtn");
-            const chatModal       = document.getElementById("chatModal");
-            const closeBtn        = document.getElementById("closeChatBtn");
-            const minimizeBtn     = document.getElementById("minimizeChatBtn");
-            const chatHeader      = document.getElementById("chatModalHeader");
-            const chatMessages    = document.getElementById("chatMessages");
-            const modalForm       = document.getElementById("modalChatForm");
-            const modalInput      = document.getElementById("modalChatInput");
-
-            // Helper to append a bubble
-            function appendMessage(role, text) {
-            const wrapper = document.createElement("div");
-            wrapper.classList.add("chat-message", "flex", "items-start", "space-x-2");
-
-            if (role === "user") {
-                wrapper.classList.add("justify-end");
-                wrapper.innerHTML = `
-                <div class="bg-yellow-500 text-white rounded-lg p-3 max-w-[85%]">
-                    <p>${text}</p>
-                </div>
-                `;
-            } else {
-                // ✅ Use marked to convert agent's markdown to HTML
-                const html = marked.parse(text);
-
-                wrapper.innerHTML = `
-                <div class="bg-gray-100 rounded-lg p-3 max-w-[85%] prose prose-sm">
-                    ${html}
-                </div>
-                `;
-            }
-
-            chatMessages.appendChild(wrapper);
-            chatMessages.parentElement.scrollTop = chatMessages.parentElement.scrollHeight;
-            }
-
-
-
-            // Open modal
-            function openModal() {
-            chatModal.classList.remove("hidden");
-            modalInput.focus();
-            }
-
-            // Send to Flask /chat
-            async function sendToAgent(msg) {
-            const resp = await fetch("/chat", {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: msg })
-            });
-            const body = await resp.json();
-            if (resp.ok) {
-                appendMessage("assistant", body.assistant);
-
-                if (data.action_performed) {
-                    setTimeout(() => window.location.reload(), 800);
-                }
-            } else {
-                appendMessage("assistant", "⚠️ " + (body.error||"Error"));
-            }
-            }
-
-            // Bottom form submit
-            if (chatForm) {
-            chatForm.addEventListener("submit", e => {
-                e.preventDefault();
-                const txt = messageInput.value.trim();
-                if (!txt) return;
-                openModal();
-                appendMessage("user", txt);
-                messageInput.value = "";
-                sendToAgent(txt);
-            });
-            }
-
-            // Modal form submit
-            if (modalForm) {
-            modalForm.addEventListener("submit", e => {
-                e.preventDefault();
-                const txt = modalInput.value.trim();
-                if (!txt) return;
-                appendMessage("user", txt);
-                modalInput.value = "";
-                sendToAgent(txt);
-            });
-            }
-
-            // Open button
-            if (openBtn) {
-            openBtn.addEventListener("click", openModal);
-            }
-
-            // Close & minimize
-            if (closeBtn) {
-            closeBtn.addEventListener("click", e => {
-                e.preventDefault(); chatModal.classList.add("hidden");
-            });
-            }
-            if (minimizeBtn) {
-            minimizeBtn.addEventListener("click", e => {
-                e.preventDefault(); chatModal.classList.add("hidden");
-            });
-            }
-
-            // Backdrop click to close
-            if (chatModal) {
-            chatModal.addEventListener("click", e => {
-                if (e.target === chatModal) chatModal.classList.add("hidden");
-            });
-            }
-
-            // Drag the modal
-            if (chatHeader) {
-            let isDragging=false, startX=0, startY=0, xOff=0, yOff=0;
-            chatHeader.addEventListener("mousedown", e=>{
-                isDragging = true;
-                startX = e.clientX - xOff;
-                startY = e.clientY - yOff;
-                chatHeader.closest(".relative")?.classList.add("dragging");
-            });
-            document.addEventListener("mousemove", e=>{
-                if (!isDragging) return;
-                e.preventDefault();
-                xOff = e.clientX - startX;
-                yOff = e.clientY - startY;
-                chatHeader.closest(".relative").style.transform = 
-                `translate3d(${xOff}px,${yOff}px,0)`;
-            });
-            document.addEventListener("mouseup", ()=>{
-                isDragging=false;
-                chatHeader.closest(".relative")?.classList.remove("dragging");
-            });
-            }
-
-        } catch (err) {
-            console.error("Initialization error:", err);
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Daily — QBO Agent</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              yellow: { 400:"#FFD700", 500:"#FFC107", 600:"#FF8F00" },
+            },
+            fontFamily: { inter: ["Inter","sans-serif"] }
+          }
         }
-        });
-        </script>
+      };
+    </script>
+    <style>
+      body { font-family: "Inter", sans-serif; }
+      .chat-message { animation: slideInUp 0.2s ease-out; }
+      @keyframes slideInUp {
+        from { opacity: 0; transform: translateY(8px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+      /* nicer lists inside agent markdown */
+      .prose ul { list-style: disc; padding-left: 1.5rem; }
+      .prose ol { list-style: decimal; padding-left: 1.5rem; }
+      .prose li { margin: .25rem 0; }
+    </style>
+  </head>
 
+  <body class="bg-gray-50 min-h-screen font-inter text-sm">
+    <!-- Header -->
+    <header class="bg-white border-b border-gray-200 sticky top-0 z-40">
+      <div class="px-3 sm:px-6 py-3">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center space-x-2 sm:space-x-4">
+            <img src="{{ url_for('static', filename='Daily Logo.png') }}" alt="Logo" class="h-10 sm:h-12 w-auto"/>
+            <div class="hidden sm:block">
+              <p class="text-xs text-gray-500">Demo</p>
+              <p class="text-sm font-semibold text-gray-900">QBO Agent</p>
+            </div>
+          </div>
+          <div class="flex items-center space-x-3">
+            <div class="text-right hidden sm:block">
+              <p class="text-xs text-gray-500">Welcome,</p>
+              <p class="text-sm font-semibold text-gray-900">{{ session.get("user_name", "User") }}</p>
+            </div>
+            <form action="{{ url_for('logout') }}" method="post">
+              <button type="submit"
+                class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors font-medium">
+                Logout
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </header>
 
-    </body>
+    <!-- Chat Layout -->
+    <main class="h-[calc(100vh-60px)] sm:h-[calc(100vh-68px)] flex flex-col">
+      <!-- Messages -->
+      <div id="chatMessagesArea" class="flex-1 overflow-y-auto px-3 sm:px-6 py-4">
+        <div id="chatMessages" class="space-y-3 sm:space-y-4">
+          <!-- (Optional) Starter message -->
+          <div class="chat-message">
+            <div class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 max-w-[85%] prose prose-sm">
+              <p class="m-0"><strong>Daily Agent (QBO):</strong> Ask me about your QuickBooks data. For example:
+              </p>
+              <ul class="mt-2">
+                <li>“Show monthly revenue for 2024.”</li>
+                <li>“List overdue invoices and totals.”</li>
+                <li>“Top 5 expense categories year-to-date.”</li>
+              </ul>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Bar -->
+      <div class="border-t border-gray-200 bg-white shadow-[0_-4px_12px_rgba(0,0,0,0.05)]">
+        <div class="max-w-5xl mx-auto px-3 sm:px-6 py-3">
+          <form id="chatForm" class="flex items-center space-x-3">
+            <input
+              id="messageInput" name="message" autocomplete="off"
+              placeholder="Ask your AI assistant about your QuickBooks data…"
+              class="flex-1 p-3 pr-12 border border-gray-300 rounded-full text-sm
+                     focus:ring-2 focus:ring-yellow-500 focus:border-yellow-500 bg-gray-50 focus:bg-white"/>
+            <button type="submit"
+              class="w-9 h-9 bg-yellow-500 text-white rounded-full hover:bg-yellow-600 transition-colors flex items-center justify-center">
+              <span class="text-sm">→</span>
+            </button>
+          </form>
+        </div>
+      </div>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+      const chatForm     = document.getElementById("chatForm");
+      const messageInput = document.getElementById("messageInput");
+      const chatMessages = document.getElementById("chatMessages");
+      const messagesArea = document.getElementById("chatMessagesArea");
+
+      function appendMessage(role, textAsHtmlOrMd) {
+        const wrapper = document.createElement("div");
+        wrapper.className = "chat-message flex " + (role === "user" ? "justify-end" : "justify-start");
+
+        if (role === "user") {
+          wrapper.innerHTML = `
+            <div class="bg-yellow-500 text-white rounded-lg p-3 sm:p-3 max-w-[85%]">
+              <p class="m-0">${escapeHtml(textAsHtmlOrMd)}</p>
+            </div>`;
+        } else {
+          const html = isLikelyHtml(textAsHtmlOrMd) ? textAsHtmlOrMd : marked.parse(textAsHtmlOrMd);
+          wrapper.innerHTML = `
+            <div class="bg-white border border-gray-200 rounded-lg p-3 sm:p-4 max-w-[85%] prose prose-sm">
+              ${html}
+            </div>`;
+        }
+
+        chatMessages.appendChild(wrapper);
+        messagesArea.scrollTop = messagesArea.scrollHeight;
+      }
+
+      function isLikelyHtml(s) {
+        return typeof s === "string" && /<\/?[a-z][\s\S]*>/i.test(s);
+      }
+      function escapeHtml(s) {
+        return s.replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+      }
+
+      async function sendToAgent(msg) {
+        try {
+          const resp = await fetch("/chat", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ message: msg })
+          });
+          const body = await resp.json();
+          if (resp.ok) {
+            // Your /chat returns HTML converted from Markdown already
+            appendMessage("assistant", body.assistant || "No response.");
+          } else {
+            appendMessage("assistant", "⚠️ " + (body.error || "Error"));
+          }
+        } catch (e) {
+          appendMessage("assistant", "⚠️ Network error.");
+        }
+      }
+
+      chatForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+        const txt = messageInput.value.trim();
+        if (!txt) return;
+        appendMessage("user", txt);
+        messageInput.value = "";
+        sendToAgent(txt);
+      });
+    </script>
+  </body>
 </html>
