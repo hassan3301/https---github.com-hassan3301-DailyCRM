@@ -29,6 +29,8 @@ if cred_json:
 else:
     credentials = None
 
+print(credentials)
+
 vertexai.init(
     project=os.getenv("GOOGLE_CLOUD_PROJECT"),
     location=os.getenv("GOOGLE_CLOUD_REGION"),
@@ -115,40 +117,58 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+    DEMO_USER_ID = "hnishat@hotmail.com"
+    DEMO_STATE = {"user_id": "1", "timezone": "America/Toronto"}
+
     user_message = (request.json.get("message") or "").strip()
     if not user_message:
         return jsonify(error="Empty message"), 400
 
-    # Make sure we have / keep the same agent session for this browser
-    sess_id = get_or_create_agent_session_id()
+    # ensure session exists and create engine session lazily
+    sess_id = session.get("ai_session_id")
+    if not sess_id:
+        agent_session = AGENT.create_session(
+            user_id=DEMO_USER_ID,
+            state=DEMO_STATE
+        )
+        sess_id = agent_session["id"]
+        session["ai_session_id"] = sess_id
+        session["user_name"] = "Demo User"
 
+    # Collect ONLY assistant text parts
     text_parts = []
-
-    # Stream responses from AgentEngine
-    last_event = None
     for event in AGENT.stream_query(
-        user_id=DEMO_USER_ID,     # MUST match the user_id used for .create_session()
+        user_id=DEMO_USER_ID,
         session_id=sess_id,
         message=user_message
     ):
-        last_event = event  # (optional) keep reference if you want to inspect
-
         content = event.get("content")
         if not content:
             continue
         for part in content.get("parts", []):
-            if "text" in part:
-                text_parts.append(part["text"].strip())
-            elif "function_response" in part:
-                resp = part["function_response"].get("response", {})
-                msg = resp.get("message")
-                text_parts.append((msg or str(resp)).strip())
+            # ✅ Keep plain text from the model
+            if "text" in part and isinstance(part["text"], str):
+                txt = part["text"].strip()
+                if txt:
+                    text_parts.append(txt)
+            # 🚫 Ignore function_response and other tool payloads
+            # elif "function_response" in part:
+            #     pass
 
-    assistant_reply = " ".join([t for t in text_parts if t]).strip() or "❌ No response."
-    assistant_reply = fix_markdown_tables(assistant_reply)
+    # Join only the model text
+    assistant_reply = " ".join(text_parts).strip() or "No response."
+
+    # Optional: strip fenced JSON/code blocks if the model includes them
+    assistant_reply = re.sub(r"```(?:json|sql|text)?\s*[\s\S]*?```", "", assistant_reply, flags=re.IGNORECASE).strip()
+
+    # Optional: collapse extremely long lines (safety for any residual dumps)
+    if len(assistant_reply) > 6000:
+        assistant_reply = assistant_reply[:6000] + "\n…"
+
+    # Render Markdown → HTML (tables allowed)
     html_reply = markdown.markdown(assistant_reply, extensions=["tables"])
-
     return jsonify(user=user_message, assistant=html_reply)
+
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
